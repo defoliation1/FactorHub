@@ -109,19 +109,9 @@ class VectorBTBacktestService:
         # 从 stats Series 中提取指标
         # VectorBT 返回的百分比值需要除以100转换为小数
         total_return = stats.get('Total Return [%]', 0) / 100.0
-        annual_return = stats.get('Annual Return [%]', 0) / 100.0 if 'Annual Return [%]' in stats else 0.0
+        annual_return = stats.get('Annual Return [%]', 0) / 100.0
 
-        # 波动率：如果 stats 中有则使用，否则手动计算
-        if 'Volatility (Ann.) [%]' in stats:
-            volatility = stats.get('Volatility (Ann.) [%]', 0) / 100.0
-        else:
-            # 对于多资产情况，计算组合收益率的波动率
-            if isinstance(returns_clean, pd.DataFrame):
-                # 取平均组合收益
-                portfolio_returns = returns_clean.mean(axis=1)
-                volatility = portfolio_returns.std() * np.sqrt(252) if len(portfolio_returns) > 0 else 0.0
-            else:
-                volatility = returns_clean.std() * np.sqrt(252) if len(returns_clean) > 0 else 0.0
+        volatility = self._calculate_volatility(returns_clean, stats)
 
         sharpe_ratio = stats.get('Sharpe Ratio', 0)
         sortino_ratio = stats.get('Sortino Ratio', 0)
@@ -130,18 +120,7 @@ class VectorBTBacktestService:
         win_rate = stats.get('Win Rate [%]', 0) / 100.0
 
         # VaR 和 CVaR 需要自己计算
-        if len(returns_clean) > 0:
-            if isinstance(returns_clean, pd.DataFrame):
-                # 对于多资产，计算组合级别的 VaR/CVaR
-                portfolio_returns = returns_clean.mean(axis=1)
-                var_95 = portfolio_returns.quantile(0.05)
-                cvar_95 = portfolio_returns[portfolio_returns <= var_95].mean()
-            else:
-                var_95 = returns_clean.quantile(0.05)
-                cvar_95 = returns_clean[returns_clean <= var_95].mean()
-        else:
-            var_95 = 0.0
-            cvar_95 = 0.0
+        var_95, cvar_95 = self._calculate_var_cvar(returns_clean)
 
         # 计算交易次数
         trades_count = stats.get('Total Trades', 0)
@@ -346,19 +325,9 @@ class VectorBTBacktestService:
         # 从 stats Series 中提取指标
         # VectorBT 返回的百分比值需要除以100转换为小数
         total_return = stats.get('Total Return [%]', 0) / 100.0
-        annual_return = stats.get('Annual Return [%]', 0) / 100.0 if 'Annual Return [%]' in stats else 0.0
+        annual_return = stats.get('Annual Return [%]', 0) / 100.0
 
-        # 波动率：如果 stats 中有则使用，否则手动计算
-        if 'Volatility (Ann.) [%]' in stats:
-            volatility = stats.get('Volatility (Ann.) [%]', 0) / 100.0
-        else:
-            # 对于多资产情况，计算组合收益率的波动率
-            if isinstance(returns_clean, pd.DataFrame):
-                # 取平均组合收益
-                portfolio_returns = returns_clean.mean(axis=1)
-                volatility = portfolio_returns.std() * np.sqrt(252) if len(portfolio_returns) > 0 else 0.0
-            else:
-                volatility = returns_clean.std() * np.sqrt(252) if len(returns_clean) > 0 else 0.0
+        volatility = self._calculate_volatility(returns_clean, stats)
 
         sharpe_ratio = stats.get('Sharpe Ratio', 0)
         sortino_ratio = stats.get('Sortino Ratio', 0)
@@ -367,18 +336,7 @@ class VectorBTBacktestService:
         win_rate = stats.get('Win Rate [%]', 0) / 100.0
 
         # VaR 和 CVaR 需要自己计算
-        if len(returns_clean) > 0:
-            if isinstance(returns_clean, pd.DataFrame):
-                # 对于多资产，计算组合级别的 VaR/CVaR
-                portfolio_returns = returns_clean.mean(axis=1)
-                var_95 = portfolio_returns.quantile(0.05)
-                cvar_95 = portfolio_returns[portfolio_returns <= var_95].mean()
-            else:
-                var_95 = returns_clean.quantile(0.05)
-                cvar_95 = returns_clean[returns_clean <= var_95].mean()
-        else:
-            var_95 = 0.0
-            cvar_95 = 0.0
+        var_95, cvar_95 = self._calculate_var_cvar(returns_clean)
 
         # 计算交易次数（每日调仓次数）
         trades_count = stats.get('Total Trades', len(selected_stocks))
@@ -499,6 +457,33 @@ class VectorBTBacktestService:
             "var_95": var_95,
             "cvar_95": cvar_95,
         }
+
+    def _calculate_volatility(self, returns_clean: pd.Series | pd.DataFrame, stats: pd.Series) -> float:
+        """Calculate volatility from stats or compute manually"""
+        if 'Volatility (Ann.) [%]' in stats:
+            return stats.get('Volatility (Ann.) [%]', 0) / 100.0
+
+        # For multi-asset case, calculate portfolio returns volatility
+        if isinstance(returns_clean, pd.DataFrame):
+            portfolio_returns = returns_clean.mean(axis=1)
+            return portfolio_returns.std() * np.sqrt(252) if len(portfolio_returns) > 0 else 0.0
+
+        return returns_clean.std() * np.sqrt(252) if len(returns_clean) > 0 else 0.0
+
+    def _calculate_var_cvar(self, returns_clean: pd.Series | pd.DataFrame) -> tuple[float, float]:
+        """Calculate VaR and CVaR from returns"""
+        if len(returns_clean) == 0:
+            return 0.0, 0.0
+
+        if isinstance(returns_clean, pd.DataFrame):
+            portfolio_returns = returns_clean.mean(axis=1)
+            var_95 = portfolio_returns.quantile(0.05)
+            cvar_95 = portfolio_returns[portfolio_returns <= var_95].mean()
+        else:
+            var_95 = returns_clean.quantile(0.05)
+            cvar_95 = returns_clean[returns_clean <= var_95].mean()
+
+        return var_95, cvar_95
 
     def _empty_metrics(self) -> Dict:
         """返回空的性能指标字典"""
