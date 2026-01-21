@@ -1,41 +1,42 @@
 """
-数据库连接和会话管理
+数据库连接管理模块
 """
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from backend.models import Base
-from backend.core.settings import settings
-import logging
+from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
+from sqlalchemy.pool import StaticPool
+from contextlib import contextmanager
+from typing import Generator
 
-logger = logging.getLogger(__name__)
+from backend.core.settings import settings
+
 
 # 创建数据库引擎
 engine = create_engine(
-    settings.database_url,
-    connect_args={"check_same_thread": False},  # SQLite 特定配置
-    echo=False,  # 设置为 True 可以看到 SQL 语句
+    settings.DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    echo=False,
 )
 
-# 创建会话工厂
+# 创建 Session 工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def init_db():
+class Base(DeclarativeBase):
+    """数据库模型基类"""
+    pass
+
+
+def init_db() -> None:
     """初始化数据库，创建所有表"""
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("数据库初始化成功")
-    except Exception as e:
-        logger.error(f"数据库初始化失败: {str(e)}")
-        raise
+    from backend.models.factor import FactorModel, AnalysisCacheModel
+    from backend.models.backtest import BacktestResultModel, TradeRecordModel
+
+    Base.metadata.create_all(bind=engine)
 
 
-def get_db() -> Session:
-    """
-    获取数据库会话
-    用于 FastAPI 依赖注入
-    """
+@contextmanager
+def get_db() -> Generator[Session, None, None]:
+    """获取数据库会话的上下文管理器"""
     db = SessionLocal()
     try:
         yield db
@@ -44,8 +45,5 @@ def get_db() -> Session:
 
 
 def get_db_session() -> Session:
-    """
-    获取数据库会话（同步版本）
-    用于直接调用
-    """
+    """获取数据库会话（非上下文管理器方式）"""
     return SessionLocal()

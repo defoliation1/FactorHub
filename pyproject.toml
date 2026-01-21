@@ -1,42 +1,37 @@
 [project]
 name = "factor-flow"
 version = "0.1.0"
-description = "因子分析平台 - 基于Streamlit和FastAPI的量化因子分析系统"
+description = "因子分析平台 - 基于Streamlit的量化因子分析系统"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.10"
 dependencies = [
     "streamlit>=1.31.0",
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
     "akshare>=1.12.0",
-    "pandas>=2.2.0",
-    "numpy>=1.26.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
     "TA-Lib>=0.4.28",
-    "sqlalchemy>=2.0.25",
+    "sqlalchemy>=2.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "xgboost>=2.0.0",
     "plotly>=5.18.0",
-    "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
-    "scikit-learn>=1.4.0",
-    "requests>=2.31.0",
-    "httpx>=0.26.0",
-    "python-multipart>=0.0.6",
-    "openpyxl>=3.1.0",
+    "scikit-learn>=1.3.0",
     "pyyaml>=6.0.0",
+    "vectorbt>=0.25.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "pytest-asyncio>=0.23.0",
     "black>=23.12.0",
-    "flake8>=7.0.0",
-    "isort>=5.13.0",
-    "mypy>=1.8.0",
 ]
-shap = [
-    "shap>=0.43.0",
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
 ]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

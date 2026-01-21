@@ -1,6 +1,6 @@
 前端：**streamlit**
 
-后端：**fastapi+akshare（股票数据）+sqllite + uv环境管理 +talib**
+后端：**akshare（股票数据）+sqllite + uv环境管理 + talib + vectorbt**
 
 注意：akshare数据支持自动缓存本地，并优先本地调用缓存数据计算
 
@@ -191,3 +191,66 @@
 | `volume_ma_ratio` | `volume_t / sma(volume, 10)_t` | 当日量能 vs 近期均量          |
 | `obv`             | On-Balance Volume              | 累计量能趋势（需初始化）      |
 | `obv_slope`       | `obv_t - obv_{t-5}`            | OBV 近5日斜率（资金流入流出） |
+
+---
+
+1 因子回测功能
+当前缺失: 无法验证因子策略的实际收益
+
+# 建议添加
+
+- 简单单因子回测（做多/做空）
+- 因子分层回测（五分位回测）
+- 基于因子值的买卖信号生成
+- 收益曲线、最大回撤、夏普比率等风险指标
+  1.2 因子组合分析
+  当前缺失: 只能分析单因子，无法评估组合效果
+
+# 建议添加
+
+- 多因子组合构建
+- 因子权重优化（等权重、IC加权、风险平价）
+- 组合收益归因分析
+  1.3 风险指标计算
+  当前缺失: 仅有IC/IR，缺少风险指标
+
+# 建议添加
+
+- 波动率（年化）
+- 最大回撤
+- VaR (Value at Risk)
+- Calmar比率
+
+1 因子有效性检验
+
+# 建议添加
+
+- t-statistic 检验IC显著性
+- 因子单调性检验
+- 因子换手率分组分析
+- 因子衰减分析（因子有效性随时间衰减）
+  4.2 交互效应分析
+
+# 当前：SHAP只分析主效应
+
+# 优化：添加因子交互效应
+
+from sklearn.preprocessing import PolynomialFeatures
+
+# 生成因子交互项
+
+X_interaction = PolynomialFeatures(degree=2, interaction_only=True)
+4.3 因子稳定性分析
+
+- 不同时间窗口的IC稳定性
+- 牛市/熊市环境下的因子表现
+- 因子拥挤度分析
+  4.4 更丰富的可视化
+
+# 建议添加
+
+- 因子衰减曲线图
+- 因子换手率分箱图
+- 累积收益曲线对比
+- 因子相关性网络图
+- 因子表现雷达图

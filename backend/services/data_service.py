@@ -1,240 +1,187 @@
 """
-数据服务 - 使用 akshare 获取股票数据
-支持本地缓存以提高性能
+数据服务模块 - 股票数据获取与缓存
 """
-
-import akshare as ak
-import pandas as pd
-import numpy as np
+import hashlib
+import pickle
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
-import logging
+from typing import Optional
+import pandas as pd
+import akshare as ak
 
 from backend.core.settings import settings
-from backend.core.exceptions import DataAccessException
-
-logger = logging.getLogger(__name__)
 
 
 class DataService:
-    """数据服务类，封装 akshare 数据获取和缓存逻辑"""
+    """数据服务类 - 负责股票数据获取和缓存"""
 
     def __init__(self):
         self.cache_dir = settings.AKSHARE_CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_cache_path(self, symbol: str, data_type: str = "daily") -> Path:
-        """获取缓存文件路径"""
-        return self.cache_dir / f"{symbol}_{data_type}.parquet"
+    def _get_cache_path(self, stock_code: str, start_date: str, end_date: str) -> Path:
+        """生成缓存文件路径"""
+        cache_key = f"{stock_code}_{start_date}_{end_date}"
+        cache_hash = hashlib.md5(cache_key.encode()).hexdigest()
+        return self.cache_dir / f"{cache_hash}.pkl"
 
-    def _is_cache_valid(self, cache_path: Path, max_days: int = 1) -> bool:
-        """检查缓存是否有效"""
+    def _load_from_cache(self, cache_path: Path) -> Optional[pd.DataFrame]:
+        """从缓存加载数据"""
         if not cache_path.exists():
-            return False
+            return None
+        try:
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+        except Exception:
+            return None
 
-        # 检查文件修改时间
-        file_time = datetime.fromtimestamp(cache_path.stat().st_mtime)
-        if (datetime.now() - file_time).days > max_days:
-            return False
-
-        return True
+    def _save_to_cache(self, data: pd.DataFrame, cache_path: Path) -> None:
+        """保存数据到缓存"""
+        with open(cache_path, "wb") as f:
+            pickle.dump(data, f)
 
     def get_stock_data(
         self,
-        symbol: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        stock_code: str,
+        start_date: str,
+        end_date: str,
         use_cache: bool = True,
-        force_refresh: bool = False,
     ) -> pd.DataFrame:
         """
-        获取股票日线数据
+        获取股票历史数据
 
         Args:
-            symbol: 股票代码，如 "000001"
-            start_date: 开始日期，格式 "20240101"
-            end_date: 结束日期，格式 "20241231"
+            stock_code: 股票代码，如 "000001" 或 "000001.SZ"
+            start_date: 开始日期，格式 "YYYY-MM-DD"
+            end_date: 结束日期，格式 "YYYY-MM-DD"
             use_cache: 是否使用缓存
-            force_refresh: 是否强制刷新
 
         Returns:
-            包含 OHLCV 数据的 DataFrame
+            包含OHLCV数据的DataFrame
         """
-        cache_path = self._get_cache_path(symbol, "daily")
+        # 标准化股票代码
+        stock_code = self._normalize_stock_code(stock_code)
 
-        # 尝试从缓存加载
-        if use_cache and not force_refresh and self._is_cache_valid(cache_path):
-            try:
-                logger.info(f"从缓存加载数据: {symbol}")
-                df = pd.read_parquet(cache_path)
-
-                # 过滤日期范围
-                if start_date:
-                    df = df[df.index >= start_date]
-                if end_date:
-                    df = df[df.index <= end_date]
-
-                return df
-            except Exception as e:
-                logger.warning(f"缓存加载失败: {e}")
+        # 检查缓存
+        if use_cache and settings.AKSHARE_CACHE_ENABLED:
+            cache_path = self._get_cache_path(stock_code, start_date, end_date)
+            cached_data = self._load_from_cache(cache_path)
+            if cached_data is not None:
+                return cached_data
 
         # 从 akshare 获取数据
         try:
-            logger.info(f"从 akshare 获取数据: {symbol}")
+            if stock_code.endswith(".SH"):
+                symbol = stock_code.replace(".SH", "")
+                df = ak.stock_zh_a_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                    adjust="qfq",  # 前复权
+                )
+            elif stock_code.endswith(".SZ"):
+                symbol = stock_code.replace(".SZ", "")
+                df = ak.stock_zh_a_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                    adjust="qfq",
+                )
+            else:
+                # 尝试自动识别
+                df = ak.stock_zh_a_hist(
+                    symbol=stock_code,
+                    period="daily",
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                    adjust="qfq",
+                )
 
-            # 尝试不同的数据源
-            try:
-                # 股票日线数据
-                df = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
-            except Exception:
-                try:
-                    # 备用数据源
-                    df = ak.stock_zh_a_daily(symbol=f"sz{symbol}")
-                except Exception:
-                    # 如果 akshare 失败，生成模拟数据用于测试
-                    logger.warning(f"无法从 akshare 获取 {symbol} 数据，生成模拟数据")
-                    df = self._generate_mock_data(symbol, start_date, end_date)
+            # 标准化列名
+            df = self._standardize_columns(df)
 
-            # 数据预处理
-            if not df.empty:
-                # 标准化列名
-                df = self._standardize_columns(df)
-
-                # 保存到缓存
-                if use_cache:
-                    df.to_parquet(cache_path)
-                    logger.info(f"数据已缓存: {cache_path}")
-
-                # 过滤日期范围
-                if start_date:
-                    df = df[df.index >= start_date]
-                if end_date:
-                    df = df[df.index <= end_date]
+            # 保存到缓存
+            if use_cache and settings.AKSHARE_CACHE_ENABLED:
+                cache_path = self._get_cache_path(stock_code, start_date, end_date)
+                self._save_to_cache(df, cache_path)
 
             return df
 
         except Exception as e:
-            logger.error(f"获取数据失败: {e}")
-            raise
+            raise ValueError(f"获取股票 {stock_code} 数据失败: {e}")
+
+    def _normalize_stock_code(self, code: str) -> str:
+        """标准化股票代码格式"""
+        code = code.strip().upper()
+        if not code.endswith((".SH", ".SZ")):
+            # 自动判断上海或深圳
+            if code.startswith("6"):
+                return f"{code}.SH"
+            elif code.startswith(("0", "3")):
+                return f"{code}.SZ"
+        return code
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """标准化列名"""
-        # 尝试识别并重命名列
-        column_mapping = {}
+        """标准化DataFrame列名"""
+        # akshare 返回的列名映射
+        column_mapping = {
+            "日期": "date",
+            "开盘": "open",
+            "收盘": "close",
+            "最高": "high",
+            "最低": "low",
+            "成交量": "volume",
+            "成交额": "amount",
+            "振幅": "amplitude",
+            "涨跌幅": "pct_change",
+            "涨跌额": "change",
+            "换手率": "turnover",
+        }
 
-        for col in df.columns:
-            col_lower = col.lower()
-            if "open" in col_lower:
-                column_mapping[col] = "open"
-            elif "high" in col_lower:
-                column_mapping[col] = "high"
-            elif "low" in col_lower:
-                column_mapping[col] = "low"
-            elif "close" in col_lower or "收盘" in col:
-                column_mapping[col] = "close"
-            elif "volume" in col_lower or "成交量" in col or "持仓量" in col:
-                column_mapping[col] = "volume"
-            elif "date" in col_lower or "日期" in col:
-                column_mapping[col] = "date"
+        df = df.rename(columns=column_mapping)
 
-        if column_mapping:
-            df = df.rename(columns=column_mapping)
-
-        # 设置日期索引
+        # 确保日期列是datetime类型
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"])
             df.set_index("date", inplace=True)
-        elif not isinstance(df.index, pd.DatetimeIndex):
-            try:
-                df.index = pd.to_datetime(df.index)
-            except Exception:
-                pass
 
-        # 确保必要的列存在
-        required_columns = ["open", "high", "low", "close", "volume"]
-        for col in required_columns:
-            if col not in df.columns:
-                # 如果缺失列，尝试用相似名称或填充
-                if col == "volume" and "持仓量" in df.columns:
-                    df[col] = df["持仓量"]
-                else:
-                    logger.warning(f"缺少列: {col}")
+        # 确保数值列是正确的类型
+        numeric_columns = ["open", "high", "low", "close", "volume"]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        return df
+        return df.sort_index()
 
-    def _generate_mock_data(
-        self, symbol: str, start_date: Optional[str], end_date: Optional[str]
-    ) -> pd.DataFrame:
-        """生成模拟数据用于测试"""
-        if end_date:
-            end = datetime.strptime(end_date, "%Y%m%d")
-        else:
-            end = datetime.now()
-
-        if start_date:
-            start = datetime.strptime(start_date, "%Y%m%d")
-        else:
-            start = end - timedelta(days=365)
-
-        dates = pd.date_range(start=start, end=end, freq="D")
-
-        # 生成随机价格数据
-        np.random.seed(hash(symbol) % (2**32))
-        base_price = 50000 + np.random.randint(0, 50000)
-
-        # 使用几何布朗运动模拟价格
-        n = len(dates)
-        returns = np.random.normal(0.001, 0.02, n)
-        prices = base_price * np.exp(np.cumsum(returns))
-
-        # 生成 OHLCV
-        df = pd.DataFrame(
-            {
-                "open": prices * (1 + np.random.uniform(-0.01, 0.01, n)),
-                "high": prices * (1 + np.random.uniform(0, 0.02, n)),
-                "low": prices * (1 - np.random.uniform(0, 0.02, n)),
-                "close": prices,
-                "volume": np.random.randint(1000000, 10000000, n),
-            },
-            index=dates,
-        )
-
-        return df
-
-    def get_multiple_symbols(
-        self, symbols: List[str], start_date: str, end_date: str, use_cache: bool = True
-    ) -> Dict[str, pd.DataFrame]:
+    def get_multiple_stocks_data(
+        self,
+        stock_codes: list[str],
+        start_date: str,
+        end_date: str,
+        use_cache: bool = True,
+    ) -> dict[str, pd.DataFrame]:
         """
-        批量获取多个股票的数据
+        获取多个股票的数据
 
         Args:
-            symbols: 股票代码列表
+            stock_codes: 股票代码列表
             start_date: 开始日期
             end_date: 结束日期
             use_cache: 是否使用缓存
 
         Returns:
-            {symbol: DataFrame} 字典
+            字典，key为股票代码，value为对应的DataFrame
         """
         result = {}
-        for symbol in symbols:
+        for code in stock_codes:
             try:
-                df = self.get_stock_data(
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                    use_cache=use_cache,
-                )
-                result[symbol] = df
+                df = self.get_stock_data(code, start_date, end_date, use_cache)
+                result[code] = df
             except Exception as e:
-                logger.error(f"获取 {symbol} 数据失败: {e}")
-
+                print(f"Warning: 获取股票 {code} 数据失败: {e}")
         return result
 
 
 # 全局数据服务实例
 data_service = DataService()
-
-# 向后兼容：保持旧方法名
-data_service.get_futures_data = data_service.get_stock_data

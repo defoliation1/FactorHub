@@ -7,7 +7,10 @@
       "Bash(uv pip install:*)",
       "Bash(.venv/Scripts/python.exe:*)",
       "Bash(tree:*)",
-      "Bash(uv run pytest:*)"
+      "Bash(uv run pytest:*)",
+      "Bash(findstr /v \".venv\")",
+      "Bash(find:*)",
+      "Bash(.venv/Scripts/python:*)"
     ],
     "deny": [],
     "ask": []
