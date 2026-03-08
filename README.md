@@ -1,6 +1,6 @@
 # FactorFlow - 股票因子分析系统
 
-基于 Streamlit 的量化因子分析平台，提供因子管理、计算、IC/IR分析、回测评估和SHAP特征解释功能。
+基于 Web 前端 + FastAPI 的量化因子分析平台，提供因子管理、计算、IC/IR分析、回测评估和SHAP特征解释功能。
 
 ## 功能特点
 
@@ -47,23 +47,15 @@
 
 ## 技术栈
 
-- **前端**: Streamlit
+- **前端**: HTML/CSS/JavaScript + Tailwind CSS + Chart.js
+- **后端**: FastAPI
 - **数据源**: akshare（中国A股数据，已迁移到新API）
 - **数据库**: SQLite
 - **计算**: numpy, pandas, TA-Lib
 - **分析**: xgboost, scikit-learn, shap
 - **回测**: vectorbt（可选）、自定义回测框架
-- **图表**: plotly
+- **图表**: plotly（后端）、Chart.js（前端）
 - **测试**: pytest（142个测试用例，80+个核心测试通过）
-
-## 技术栈
-
-- **前端**: Streamlit
-- **数据源**: akshare（中国A股数据）
-- **数据库**: SQLite
-- **计算**: numpy, pandas, TA-Lib
-- **分析**: xgboost, scikit-learn, shap
-- **图表**: plotly
 
 ## 安装
 
@@ -174,15 +166,21 @@ pytest tests/test_stage5_features.py -v
 ### 启动应用
 
 ```bash
-# 使用 uv 运行
-uv run streamlit run frontend/app.py
+# 使用 uv 运行完整服务（后端 API + 前端）
+uv run python start_all.py
 
-# 或者激活虚拟环境后直接运行
-source .venv/bin/activate  # Linux/macOS
-# 或
-.venv\Scripts\activate     # Windows
-streamlit run frontend/app.py
+# 或者分别启动：
+# 1. 启动后端 API
+uv run python start_api.py
+
+# 2. 在另一个终端启动前端 HTTP 服务器
+cd frontend/web
+python -m http.server 8080
 ```
+
+访问地址：
+- 前端: http://localhost:8080
+- API文档: http://localhost:8000/docs
 
 ### 因子管理
 

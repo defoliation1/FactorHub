@@ -1,6 +1,6 @@
-前端：**streamlit**
+前端：**HTML/CSS/JavaScript + Tailwind CSS + Chart.js**
 
-后端：**akshare（股票数据）+sqllite + uv环境管理 + talib + vectorbt**
+后端：**FastAPI + akshare（股票数据）+ SQLite + uv环境管理 + TA-Lib + vectorbt**
 
 注意：akshare数据支持自动缓存本地，并优先本地调用缓存数据计算
 

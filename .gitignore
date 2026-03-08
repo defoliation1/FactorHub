@@ -44,8 +44,6 @@ logs/*.log
 .env
 .env.local
 
-# Streamlit
-.streamlit/
 
 # OS
 .DS_Store
@@ -63,3 +61,4 @@ web_demo.md
 memory/
 docs/
 nul
+skills
