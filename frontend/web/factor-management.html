@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>因子管理 - FactorFlow</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/common.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans SC"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50">
+    <!-- 顶部导航栏 -->
+    <header class="bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="text-3xl">📊</div>
+                    <div>
+                        <h1 class="text-2xl font-bold">FactorFlow</h1>
+                        <p class="text-sm text-primary-100">因子管理</p>
+                    </div>
+                </div>
+                <nav class="hidden md:flex gap-6">
+                    <a href="index.html" class="text-white hover:text-primary-100 font-medium">首页</a>
+                    <a href="factor-management.html" class="text-white border-b-2 border-white font-medium">因子管理</a>
+                    <a href="factor-analysis.html" class="text-white hover:text-primary-100 font-medium">因子分析</a>
+                    <a href="factor-mining.html" class="text-white hover:text-primary-100 font-medium">因子挖掘</a>
+                    <a href="portfolio-analysis.html" class="text-white hover:text-primary-100 font-medium">组合分析</a>
+                    <a href="backtesting.html" class="text-white hover:text-primary-100 font-medium">策略回测</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">预置因子</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="preset-count">-</p>
+                    </div>
+                    <div class="text-4xl">📋</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">用户因子</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="user-count">-</p>
+                    </div>
+                    <div class="text-4xl">✏️</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">总因子数</p>
+                        <p class="text-3xl font-bold text-primary-600 mt-2" id="total-count">-</p>
+                    </div>
+                    <div class="text-4xl">📊</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签页导航 -->
+        <div class="mb-6">
+            <div class="border-b border-slate-200">
+                <nav class="flex gap-8">
+                    <button onclick="switchTab('list')" id="tab-list" class="tab-btn py-4 px-2 border-b-2 border-primary-500 text-primary-600 font-medium">
+                        因子列表
+                    </button>
+                    <button onclick="switchTab('create')" id="tab-create" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium">
+                        新增因子
+                    </button>
+                    <button onclick="switchTab('batch')" id="tab-batch" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium">
+                        批量生成
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- 标签页内容 -->
+        <div id="tab-content">
+            <!-- 因子列表 -->
+            <div id="content-list" class="tab-content">
+                <!-- 工具栏 -->
+                <div class="card mb-6">
+                    <div class="flex flex-wrap gap-4 items-end">
+                        <div class="flex-1 min-w-[200px]">
+                            <label class="block text-sm text-slate-600 mb-2">分类筛选</label>
+                            <select id="category-filter" class="select" onchange="loadFactors()">
+                                <option value="">全部</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 min-w-[200px]">
+                            <label class="block text-sm text-slate-600 mb-2">来源筛选</label>
+                            <select id="source-filter" class="select" onchange="loadFactors()">
+                                <option value="">全部</option>
+                                <option value="preset">预置</option>
+                                <option value="user">自定义</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 min-w-[200px]">
+                            <label class="block text-sm text-slate-600 mb-2">搜索</label>
+                            <input type="text" id="search-input" class="input" placeholder="搜索因子名称..." oninput="loadFactors()">
+                        </div>
+                        <button onclick="loadFactors()" class="btn btn-primary">
+                            🔄 刷新
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 因子列表表格 -->
+                <div class="card overflow-hidden">
+                    <div class="table-container">
+                        <table id="factors-table">
+                            <thead>
+                                <tr>
+                                    <th>因子名称</th>
+                                    <th>分类</th>
+                                    <th>来源</th>
+                                    <th>说明</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="factors-tbody">
+                                <tr>
+                                    <td colspan="5" class="text-center text-slate-600 py-8">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 新增因子 -->
+            <div id="content-create" class="tab-content hidden">
+                <div class="card max-w-2xl mx-auto">
+                    <h2 class="text-xl font-bold text-slate-800 mb-6">创建新因子</h2>
+
+                    <form id="create-factor-form" onsubmit="createFactor(event)">
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">因子名称 *</label>
+                            <input type="text" name="name" class="input" required placeholder="例如：RSI指标">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">因子代码 *</label>
+                            <textarea name="code" class="input font-mono" rows="4" required placeholder="例如：RSI(close, 14)"></textarea>
+                            <p class="text-xs text-slate-500 mt-1">支持 Python 表达式，可使用 close, open, high, low, volume 等字段</p>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">分类 *</label>
+                            <select name="category" class="select" required>
+                                <option value="">请选择</option>
+                                <option value="技术指标">技术指标</option>
+                                <option value="价格动量">价格动量</option>
+                                <option value="成交量">成交量</option>
+                                <option value="波动率">波动率</option>
+                                <option value="自定义">自定义</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">说明</label>
+                            <textarea name="description" class="input" rows="3" placeholder="简要描述因子的含义和用途"></textarea>
+                        </div>
+
+                        <div class="mb-6">
+                            <label class="block text-sm text-slate-600 mb-2">公式类型</label>
+                            <select name="formula_type" class="select">
+                                <option value="expression">表达式</option>
+                                <option value="function">函数</option>
+                            </select>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button type="submit" class="btn btn-primary flex-1">
+                                ✅ 创建因子
+                            </button>
+                            <button type="button" onclick="validateFormula()" class="btn btn-secondary">
+                                🔍 验证公式
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 批量生成 -->
+            <div id="content-batch" class="tab-content hidden">
+                <div class="card max-w-4xl mx-auto">
+                    <h2 class="text-xl font-bold text-slate-800 mb-6">批量生成因子</h2>
+
+                    <form id="batch-generate-form" onsubmit="batchGenerate(event)">
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">选择基础因子 *</label>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3" id="base-factors-checkboxes">
+                                <p class="text-slate-600">加载中...</p>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm text-slate-600 mb-2">生成方法 *</label>
+                            <div class="grid grid-cols-3 gap-3">
+                                <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-primary-50">
+                                    <input type="checkbox" name="methods" value="arithmetic" class="w-4 h-4">
+                                    <span>算术运算</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-primary-50">
+                                    <input type="checkbox" name="methods" value="statistics" class="w-4 h-4">
+                                    <span>统计变换</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-primary-50">
+                                    <input type="checkbox" name="methods" value="technical" class="w-4 h-4">
+                                    <span>技术指标</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div>
+                                <label class="block text-sm text-slate-600 mb-2">IC阈值</label>
+                                <input type="number" name="ic_threshold" class="input" value="0.03" step="0.01" min="0" max="1">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-slate-600 mb-2">IR阈值</label>
+                                <input type="number" name="ir_threshold" class="input" value="0.5" step="0.1" min="0" max="10">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-slate-600 mb-2">最小有效率</label>
+                                <input type="number" name="min_valid_ratio" class="input" value="0.7" step="0.1" min="0" max="1">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-full">
+                            🚀 开始批量生成
+                        </button>
+                    </form>
+
+                    <!-- 生成结果 -->
+                    <div id="batch-result" class="mt-8 hidden">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4">生成结果</h3>
+                        <div class="bg-slate-50 rounded-lg p-4">
+                            <p class="text-slate-600" id="batch-result-content"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 脚本 -->
+    <script src="js/api.js?v=2"></script>
+    <script src="js/common.js"></script>
+    <script>
+        let allFactors = [];
+
+        // 切换标签页
+        function switchTab(tabName) {
+            // 隐藏所有标签页内容
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('border-primary-500', 'text-primary-600');
+                el.classList.add('border-transparent', 'text-slate-600');
+            });
+
+            // 显示选中的标签页
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.remove('border-transparent', 'text-slate-600');
+            document.getElementById(`tab-${tabName}`).classList.add('border-primary-500', 'text-primary-600');
+
+            // 加载对应数据
+            if (tabName === 'list') {
+                loadFactors();
+            } else if (tabName === 'batch') {
+                loadBaseFactors();
+            }
+        }
+
+        // 加载因子列表
+        async function loadFactors() {
+            try {
+                const categoryFilter = document.getElementById('category-filter').value;
+                const sourceFilter = document.getElementById('source-filter').value;
+                const searchInput = document.getElementById('search-input').value.toLowerCase();
+
+                const result = await api.getFactors(categoryFilter, sourceFilter);
+
+                if (result.success) {
+                    allFactors = result.data;
+
+                    // 搜索过滤
+                    if (searchInput) {
+                        allFactors = allFactors.filter(f =>
+                            f.name.toLowerCase().includes(searchInput) ||
+                            f.description.toLowerCase().includes(searchInput)
+                        );
+                    }
+
+                    displayFactors(allFactors);
+
+                    // 更新分类筛选器
+                    updateCategoryFilter(allFactors);
+                }
+            } catch (error) {
+                console.error('加载因子列表失败:', error);
+                showToast('加载因子列表失败', 'error');
+            }
+        }
+
+        // 显示因子列表
+        function displayFactors(factors) {
+            const tbody = document.getElementById('factors-tbody');
+
+            if (!factors || factors.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-600 py-8">暂无数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = factors.map(factor => `
+                <tr class="table-row-hover">
+                    <td>
+                        <div class="font-medium text-slate-800">${factor.name}</div>
+                        <div class="text-xs text-slate-500 font-mono mt-1">${factor.code}</div>
+                    </td>
+                    <td>
+                        <span class="badge badge-primary">${factor.category || '-'}</span>
+                    </td>
+                    <td>
+                        <span class="badge ${factor.source === 'preset' ? 'badge-success' : 'badge-warning'}">
+                            ${factor.source === 'preset' ? '预置' : '自定义'}
+                        </span>
+                    </td>
+                    <td class="text-sm text-slate-600 max-w-xs truncate">${factor.description || '-'}</td>
+                    <td>
+                        <div class="flex gap-2">
+                            <button onclick="viewFactor('${factor.name}')" class="btn btn-secondary text-sm py-1 px-3">
+                                查看
+                            </button>
+                            ${factor.source === 'user' ? `
+                                <button onclick="deleteFactor('${factor.name}')" class="btn btn-danger text-sm py-1 px-3">
+                                    删除
+                                </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // 更新分类筛选器
+        function updateCategoryFilter(factors) {
+            const select = document.getElementById('category-filter');
+            const categories = [...new Set(factors.map(f => f.category).filter(Boolean))];
+
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">全部</option>' +
+                categories.map(cat => `<option value="${cat}" ${cat === currentValue ? 'selected' : ''}>${cat}</option>`).join('');
+        }
+
+        // 查看因子详情
+        function viewFactor(name) {
+            const factor = allFactors.find(f => f.name === name);
+            if (!factor) return;
+
+            alert(`因子名称：${factor.name}\n公式：${factor.code}\n分类：${factor.category || '-'}\n说明：${factor.description || '-'}`);
+        }
+
+        // 创建因子
+        async function createFactor(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = collectFormData(form);
+
+            try {
+                showLoading('创建因子中...');
+                const result = await api.createFactor(data);
+
+                if (result.success) {
+                    showToast('因子创建成功', 'success');
+                    form.reset();
+                    switchTab('list');
+                } else {
+                    showToast(result.message || '创建失败', 'error');
+                }
+            } catch (error) {
+                console.error('创建因子失败:', error);
+                showToast('创建因子失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 验证公式
+        async function validateFormula() {
+            const form = document.getElementById('create-factor-form');
+            const code = form.code.value;
+            const formulaType = form.formula_type.value;
+
+            if (!code) {
+                showToast('请先输入因子代码', 'warning');
+                return;
+            }
+
+            try {
+                showLoading('验证公式中...');
+                const result = await api.validateFactor({
+                    code: code,
+                    formula_type: formulaType
+                });
+
+                if (result.success) {
+                    showToast('公式验证通过', 'success');
+                } else {
+                    showToast(result.message || '公式验证失败', 'error');
+                }
+            } catch (error) {
+                console.error('验证公式失败:', error);
+                showToast('验证失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 删除因子
+        async function deleteFactor(name) {
+            if (!confirm(`确定要删除因子 "${name}" 吗？`)) return;
+
+            try {
+                showLoading('删除中...');
+                // 这里需要获取factor_id，暂时用name
+                const result = await api.deleteFactor(name);
+
+                if (result.success) {
+                    showToast('删除成功', 'success');
+                    loadFactors();
+                } else {
+                    showToast(result.message || '删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除因子失败:', error);
+                showToast('删除失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 加载基础因子（用于批量生成）
+        async function loadBaseFactors() {
+            try {
+                const result = await api.getFactors();
+
+                if (result.success) {
+                    const container = document.getElementById('base-factors-checkboxes');
+                    container.innerHTML = result.data.map(factor => `
+                        <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-primary-50" title="${factor.code}">
+                            <input type="checkbox" name="base_factors" value="${factor.code}" class="w-4 h-4">
+                            <span class="text-sm">${factor.name}</span>
+                        </label>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('加载基础因子失败:', error);
+            }
+        }
+
+        // 批量生成
+        async function batchGenerate(event) {
+            event.preventDefault();
+            const form = event.target;
+
+            // 获取选中的基础因子
+            const baseFactors = Array.from(form.querySelectorAll('input[name="base_factors"]:checked'))
+                .map(cb => cb.value);
+
+            // 获取选中的生成方法
+            const methods = Array.from(form.querySelectorAll('input[name="methods"]:checked'))
+                .map(cb => cb.value);
+
+            if (baseFactors.length === 0) {
+                showToast('请至少选择一个基础因子', 'warning');
+                return;
+            }
+
+            if (methods.length === 0) {
+                showToast('请至少选择一种生成方法', 'warning');
+                return;
+            }
+
+            const data = {
+                base_factors: baseFactors,
+                generate_methods: methods,
+                ic_threshold: parseFloat(form.ic_threshold.value),
+                ir_threshold: parseFloat(form.ir_threshold.value),
+                min_valid_ratio: parseFloat(form.min_valid_ratio.value),
+            };
+
+            try {
+                showLoading('批量生成中，请稍候...');
+                const result = await api.batchGenerateFactors(data);
+
+                if (result.success) {
+                    const resultDiv = document.getElementById('batch-result');
+                    const resultContent = document.getElementById('batch-result-content');
+
+                    resultContent.innerHTML = `
+                        <p class="mb-2">✅ 生成完成！</p>
+                        <p>生成因子数：${result.data.generated_count || 0}</p>
+                        <p>通过筛选：${result.data.passed_count || 0}</p>
+                    `;
+                    resultDiv.classList.remove('hidden');
+                    showToast('批量生成完成', 'success');
+                }
+            } catch (error) {
+                console.error('批量生成失败:', error);
+                showToast('批量生成失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 加载统计数据
+        async function loadStats() {
+            try {
+                const result = await api.getFactorStats();
+                if (result.success) {
+                    document.getElementById('preset-count').textContent = result.data.preset_count || 0;
+                    document.getElementById('user-count').textContent = result.data.user_count || 0;
+                    document.getElementById('total-count').textContent = result.data.total_count || 0;
+                }
+            } catch (error) {
+                console.error('加载统计失败:', error);
+            }
+        }
+
+        // 页面加载时执行
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            loadFactors();
+        });
+    </script>
+</body>
+</html>

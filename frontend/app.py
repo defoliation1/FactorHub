@@ -24,6 +24,7 @@ from backend.repositories.backtest_repository import BacktestRepository
 from backend.services.data_service import data_service
 from backend.services.factor_import_service import factor_import_service
 from backend.services.formula_compiler_service import formula_compiler_service
+from backend.services.genetic_factor_mining_service import create_genetic_mining_service
 
 
 # ============ 初始化 ============
@@ -578,10 +579,577 @@ def plot_factor_decay_curve(decay_data: dict, title: str = "因子衰减曲线")
     st.plotly_chart(fig, use_container_width=True)
 
 
+# ============ 遗传算法因子挖掘页面 ============
+def genetic_mining_main():
+    """遗传算法因子挖掘主页面"""
+    st.title("🧬 因子挖掘")
+    st.markdown("---")
+
+    # 检查DEAP是否可用
+    try:
+        import deap
+        deap_available = True
+    except ImportError:
+        deap_available = False
+        st.error("❌ DEAP库未安装，请运行以下命令安装：")
+        st.code("pip install deap")
+        st.info("💡 提示：DEAP是遗传算法库，用于自动发现最优因子表达式")
+        st.stop()
+
+    # 侧边栏配置
+    with st.sidebar:
+        st.subheader("⚙️ 挖掘配置")
+
+        # 数据源配置
+        st.markdown("#### 📊 数据源")
+        data_mode = st.radio(
+            "数据模式",
+            ["单股票", "股票池"],
+            horizontal=True,
+        )
+
+        if data_mode == "单股票":
+            stock_code = st.text_input(
+                "股票代码",
+                value="000001",
+                help="支持格式：000001 或 000001.SZ"
+            )
+        else:
+            stock_pool_input = st.text_area(
+                "股票池（一行一个）",
+                value="000001\n000002\n600000",
+                help="每行一个股票代码"
+            )
+            stock_codes = [code.strip() for code in stock_pool_input.split("\n") if code.strip()]
+
+        # 时间范围
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "开始日期",
+                value=datetime.now() - timedelta(days=365),
+            )
+        with col2:
+            end_date = st.date_input(
+                "结束日期",
+                value=datetime.now(),
+            )
+
+        st.markdown("---")
+
+        # 因子配置
+        st.markdown("#### 🔬 基础因子")
+        all_factors = factor_service.get_all_factors()
+
+        # 按类别分组显示因子
+        factor_categories = {}
+        for factor in all_factors:
+            category = factor.get("category", "未分类")
+            if category not in factor_categories:
+                factor_categories[category] = []
+            factor_categories[category].append(factor["name"])
+
+        # 默认选择一些常用因子
+        default_factors = ["close", "sma_20", "rsi_14", "macd_line", "atr_14"]
+        available_factor_names = [f["name"] for f in all_factors]
+
+        # 过滤存在的默认因子
+        selected_defaults = [f for f in default_factors if f in available_factor_names]
+
+        selected_factors = st.multiselect(
+            "选择基础因子",
+            available_factor_names,
+            default=selected_defaults if selected_defaults else None,
+            help="选择用于组合生成新因子的基础因子"
+        )
+
+        st.markdown("---")
+
+        # 遗传算法参数
+        st.markdown("#### 🧬 遗传算法参数")
+
+        population_size = st.slider(
+            "种群大小",
+            min_value=10,
+            max_value=200,
+            value=50,
+            step=10,
+            help="每代的因子数量，越大搜索越全面但耗时越长"
+        )
+
+        n_generations = st.slider(
+            "迭代代数",
+            min_value=5,
+            max_value=100,
+            value=20,
+            step=5,
+            help="进化的代数，更多代数可能找到更优解"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            cx_prob = st.slider(
+                "交叉概率",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.7,
+                step=0.1,
+                help="因子交叉组合的概率"
+            )
+        with col2:
+            mut_prob = st.slider(
+                "变异概率",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.3,
+                step=0.1,
+                help="因子变异的概率"
+            )
+
+        st.markdown("---")
+
+        # 开始挖掘按钮
+        start_mining = st.button(
+            "🚀 开始挖掘",
+            type="primary",
+            use_container_width=True,
+        )
+
+        # 如果没有选择基础因子，显示警告
+        if not selected_factors:
+            st.warning("⚠️ 请至少选择一个基础因子")
+
+    # 主内容区
+    if not start_mining:
+        st.info("👈 请在左侧配置参数后点击「开始挖掘」按钮")
+
+        # 显示说明
+        with st.expander("💡 使用说明", expanded=True):
+            st.markdown("""
+            ### 遗传算法因子挖掘
+
+            **原理**：
+            - 模拟生物进化过程，通过选择、交叉、变异操作自动发现优质因子
+            - 每个个体代表一个因子表达式
+            - 适应度函数评估因子质量（基于IC、IR等指标）
+
+            **步骤**：
+            1. 📊 配置数据源和基础因子
+            2. ⚙️ 设置遗传算法参数
+            3. 🚀 点击「开始挖掘」
+            4. 📈 查看挖掘结果和最优因子
+
+            **参数说明**：
+            - **种群大小**：每代因子数量（10-200），越大搜索越全面
+            - **迭代代数**：进化轮数（5-100），更多代数可能找到更优解
+            - **交叉概率**：因子组合概率（0.0-1.0）
+            - **变异概率**：因子变异概率（0.0-1.0）
+
+            **输出**：
+            - Top 10 最优因子表达式
+            - 适应度进化曲线
+            - 因子性能指标
+            """)
+        return
+
+    # 验证配置
+    if not selected_factors:
+        st.error("❌ 请至少选择一个基础因子")
+        return
+
+    if len(selected_factors) < 2:
+        st.warning("⚠️ 建议至少选择2个基础因子以获得更好的挖掘效果")
+
+    # 显示挖掘进度
+    progress_container = st.container()
+
+    with progress_container:
+        st.subheader("⏳ 挖掘进度")
+
+        # 创建进度条和状态显示
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+
+        with metrics_col1:
+            gen_metric = st.metric("当前代数", "0 / 0")
+        with metrics_col2:
+            best_fitness = st.metric("最优适应度", "-")
+        with metrics_col3:
+            avg_fitness = st.metric("平均适应度", "-")
+
+    # 获取数据
+    try:
+        with st.spinner("正在获取数据..."):
+            if data_mode == "单股票":
+                data = data_service.get_stock_data(
+                    stock_code,
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d")
+                )
+                # 计算收益率
+                if "close" in data.columns:
+                    data["return"] = data["close"].pct_change()
+            else:
+                # 股票池模式：获取第一只股票的数据（简化版）
+                stock_code = stock_codes[0]
+                data = data_service.get_stock_data(
+                    stock_code,
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d")
+                )
+                if "close" in data.columns:
+                    data["return"] = data["close"].pct_change()
+
+        st.success(f"✅ 数据获取成功：{len(data)} 条记录")
+
+    except Exception as e:
+        st.error(f"❌ 数据获取失败：{str(e)}")
+        return
+
+    # 准备基础因子数据
+    try:
+        with st.spinner("正在计算基础因子..."):
+            # 确保数据包含必要的列
+            if "close" not in data.columns:
+                st.error("❌ 数据缺少close列")
+                return
+
+            # 为每个基础因子计算因子值
+            for factor_name in selected_factors:
+                if factor_name in data.columns:
+                    continue
+
+                # 简化处理：使用close列作为因子
+                if factor_name == "close":
+                    continue
+                elif factor_name.startswith("sma_"):
+                    period = int(factor_name.split("_")[1])
+                    data[factor_name] = data["close"].rolling(window=period).mean()
+                elif factor_name == "rsi_14":
+                    delta = data["close"].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / (loss + 1e-8)
+                    data[factor_name] = 100 - (100 / (1 + rs))
+                elif factor_name.startswith("macd"):
+                    ema12 = data["close"].ewm(span=12, adjust=False).mean()
+                    ema26 = data["close"].ewm(span=26, adjust=False).mean()
+                    data[factor_name] = ema12 - ema26
+                elif factor_name.startswith("atr_"):
+                    high_low = data["close"] - data["close"].shift(1)
+                    high_low = high_low.abs()
+                    data[factor_name] = high_low.rolling(window=14).mean()
+                else:
+                    # 其他因子使用close列的变换
+                    data[factor_name] = data["close"]
+
+            # 填充缺失值
+            data.fillna(method="ffill", inplace=True)
+            data.fillna(method="bfill", inplace=True)
+
+        st.success(f"✅ 基础因子计算完成")
+
+    except Exception as e:
+        st.error(f"❌ 基础因子计算失败：{str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+        return
+
+    # 执行遗传算法挖掘
+    try:
+        with st.spinner("正在执行遗传算法挖掘..."):
+            # 创建挖掘服务
+            service = create_genetic_mining_service(
+                base_factors=selected_factors,
+                data=data,
+                population_size=population_size,
+                n_generations=n_generations,
+                cx_prob=cx_prob,
+                mut_prob=mut_prob,
+            )
+
+            # 执行挖掘
+            result = service.mine_factors()
+
+        st.success("✅ 挖掘完成！")
+
+    except Exception as e:
+        st.error(f"❌ 挖掘失败：{str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+        return
+
+    # 显示挖掘结果
+    st.markdown("---")
+    st.subheader("🏆 挖掘结果")
+
+    if not result.get("success"):
+        st.error(f"❌ 挖掘失败：{result.get('message', '未知错误')}")
+        return
+
+    best_factors = result.get("best_factors", [])
+
+    if not best_factors:
+        st.warning("⚠️ 未找到有效的因子")
+        return
+
+    # 结果统计
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("发现因子数", len(best_factors))
+    with col2:
+        st.metric("最优适应度", f"{best_factors[0]['fitness']:.4f}")
+    with col3:
+        avg_fitness_value = sum(f['fitness'] for f in best_factors) / len(best_factors)
+        st.metric("平均适应度", f"{avg_fitness_value:.4f}")
+
+    st.markdown("---")
+
+    # Top 10 因子展示
+    st.subheader("📋 最优因子 Top 10")
+
+    for i, factor_info in enumerate(best_factors[:10], 1):
+        # 标题行：显示因子表达式和保存按钮
+        col_title, col_save = st.columns([4, 1])
+        with col_title:
+            st.markdown(f"**#{i}** `{factor_info['expression']}`  (适应度: {factor_info['fitness']:.4f})")
+
+        with col_save:
+            # 保存按钮（放在外部，更容易访问）
+            if st.button("💾 保存", key=f"save_{i}", use_container_width=True):
+                try:
+                    # 创建新因子
+                    factor_name = f"genetic_{datetime.now().strftime('%Y%m%d_%H%M%S')}_rank{i}"
+                    factor_service.create_factor(
+                        name=factor_name,
+                        code=factor_info['expression'],
+                        description=f"遗传算法挖掘的第{i}名因子，适应度: {factor_info['fitness']:.4f}"
+                    )
+                    st.success(f"✅ 因子 `{factor_name}` 已保存到因子库")
+                    # 使用session_state记录保存成功
+                    st.session_state[f"saved_{i}"] = True
+                except Exception as e:
+                    st.error(f"❌ 保存失败：{str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+        # 显示详细信息的折叠面板
+        with st.expander(f"查看详情 #{i}", expanded=(i == 1)):
+            col1 = st.columns(1)[0]
+
+            with col1:
+                st.markdown("**因子表达式**：")
+                st.code(
+                    factor_info['expression'],
+                    language="python"
+                )
+
+                # 显示验证信息（如果有）
+                if "validation" in factor_info:
+                    validation = factor_info["validation"]
+                    st.markdown("**验证指标**：")
+
+                    val_col1, val_col2, val_col3 = st.columns(3)
+
+                    with val_col1:
+                        # IC从ic_validation中获取
+                        ic_val = validation.get('ic_validation', {}).get('ic', 0)
+                        st.metric("IC", f"{ic_val:.4f}")
+
+                        # IR从ir_validation中获取
+                        ir_val = validation.get('ir_validation', {}).get('ir', 0)
+                        st.metric("IR", f"{ir_val:.4f}")
+
+                    with val_col2:
+                        # 换手率从turnover_validation中获取
+                        turnover_val = validation.get('turnover_validation', {}).get('turnover', 0)
+                        st.metric("换手率", f"{turnover_val:.2%}")
+
+                        # IC胜率计算：IC>0的比例（使用ic_mean计算）
+                        ic_mean_val = validation.get('ir_validation', {}).get('ic_mean', 0)
+                        ic_std_val = validation.get('ir_validation', {}).get('ic_std', 0.001)
+                        win_rate_val = 0.5 + 0.5 * (ic_mean_val / (ic_std_val + 1e-8)) if ic_std_val > 0 else 0.5
+                        win_rate_val = max(0, min(1, win_rate_val))  # 限制在0-1之间
+                        st.metric("IC胜率", f"{win_rate_val:.2%}")
+
+                    with val_col3:
+                        # 稳定性从stability_validation中获取
+                        stability_val = validation.get('stability_validation', {}).get('stability_score', 0)
+                        st.metric("稳定性", f"{stability_val:.4f}")
+
+                        # 综合得分
+                        score_val = validation.get('score', 0)
+                        st.metric("综合得分", f"{score_val:.2f}")
+
+    st.markdown("---")
+
+    # 进化曲线
+    if "logbook" in result and result["logbook"] is not None:
+        st.subheader("📈 进化曲线")
+
+        logbook = result["logbook"]
+
+        if len(logbook) > 0:
+            # 提取数据
+            try:
+                generations = list(logbook.select("gen"))
+
+                # 检查是否有fitness章节
+                if "fitness" in logbook.chapters:
+                    avg_fitness = list(logbook.chapters["fitness"].select("avg"))
+                    max_fitness = list(logbook.chapters["fitness"].select("max"))
+                    min_fitness = list(logbook.chapters["fitness"].select("min"))
+                else:
+                    # 备用方法：直接从logbook记录中提取
+                    avg_fitness = []
+                    max_fitness = []
+                    min_fitness = []
+
+                    for record in logbook:
+                        if hasattr(record, '__getitem__'):
+                            record_dict = dict(record) if hasattr(record, 'keys') else record
+                            avg_fitness.append(float(record_dict.get('avg', 0)))
+                            max_fitness.append(float(record_dict.get('max', 0)))
+                            min_fitness.append(float(record_dict.get('min', 0)))
+
+                # 显示数据表格
+                with st.expander("📋 详细数据", expanded=False):
+                    import pandas as pd
+                    min_len = min(len(generations), len(min_fitness), len(avg_fitness), len(max_fitness))
+
+                    if min_len > 0:
+                        df_stats = pd.DataFrame({
+                            "代数": generations[:min_len],
+                            "最小适应度": [round(float(f), 4) for f in min_fitness[:min_len]],
+                            "平均适应度": [round(float(f), 4) for f in avg_fitness[:min_len]],
+                            "最大适应度": [round(float(f), 4) for f in max_fitness[:min_len]],
+                        })
+                        st.dataframe(df_stats, use_container_width=True)
+
+                # 绘制图表
+                fig = go.Figure()
+
+                fig.add_trace(go.Scatter(
+                    x=generations,
+                    y=max_fitness,
+                    mode="lines+markers",
+                    name="最大适应度",
+                    line=dict(color="green", width=2),
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=generations,
+                    y=avg_fitness,
+                    mode="lines+markers",
+                    name="平均适应度",
+                    line=dict(color="blue", width=2),
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=generations,
+                    y=min_fitness,
+                    mode="lines+markers",
+                    name="最小适应度",
+                    line=dict(color="red", width=2, dash="dash"),
+                ))
+
+                fig.update_layout(
+                    title=f"适应度进化曲线 (代数: {generations[-1] + 1 if generations else 0})",
+                    xaxis_title="代数",
+                    yaxis_title="适应度",
+                    hovermode="x unified",
+                    height=500,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ 绘制进化曲线失败: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+        else:
+            st.warning("⚠️ Logbook 为空，无法绘制进化曲线")
+            st.info("""
+            **可能的原因**：
+            1. 种群太小或迭代代数太少
+            2. 所有因子评估都失败（fitness都是0）
+            3. DEAP统计配置问题
+
+            **建议**：
+            - 增加种群大小（population_size）
+            - 增加迭代代数（n_generations）
+            - 检查数据和因子配置
+            """)
+    else:
+        st.info("ℹ️ 未找到进化曲线数据")
+
+    st.markdown("---")
+
+    # 批量操作
+    st.subheader("🛠️ 批量操作")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("💾 批量保存Top 10", use_container_width=True):
+            saved_count = 0
+            for i, factor_info in enumerate(best_factors[:10], 1):
+                try:
+                    factor_service.create_factor(
+                        name=f"genetic_factor_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i}",
+                        code=factor_info['expression'],
+                        description=f"遗传算法挖掘因子 #{i}，适应度: {factor_info['fitness']:.4f}"
+                    )
+                    saved_count += 1
+                except:
+                    pass
+            if saved_count > 0:
+                st.success(f"✅ 成功保存 {saved_count} 个因子到因子库")
+            else:
+                st.error("❌ 保存失败")
+
+    with col2:
+        # 导出功能
+        if st.button("📥 导出为CSV", use_container_width=True):
+            # 准备导出数据
+            export_data = []
+            for i, factor_info in enumerate(best_factors, 1):
+                export_data.append({
+                    "排名": i,
+                    "表达式": factor_info['expression'],
+                    "适应度": factor_info['fitness'],
+                })
+
+            df_export = pd.DataFrame(export_data)
+
+            # 提供下载
+            csv = df_export.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
+                label="⬇️ 下载CSV文件",
+                data=csv,
+                file_name=f"genetic_factors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+            )
+
+
 # ============ 策略回测页面 ============
 def backtest_main():
     """策略回测主页面"""
     st.title("策略回测")
+
+    # 添加标签页选择
+    tab1, tab2 = st.tabs(["单策略回测", "多策略对比"])
+
+    with tab1:
+        backtest_single()
+
+    with tab2:
+        backtest_comparison()
+
+
+def backtest_single():
+    """单策略回测"""
 
     # 检查vectorbt是否可用
     if not check_vectorbt_available():
@@ -598,14 +1166,15 @@ def backtest_main():
         st.subheader("回测配置")
 
         # 数据模式
-        data_mode = st.radio("数据模式", ["单股票", "股票池"])
+        data_mode = st.radio("数据模式", ["单股票", "股票池"], key="single_data_mode")
 
         # 股票代码输入
         if data_mode == "单股票":
             stock_codes_input = st.text_input(
                 "股票代码",
                 value="000001",
-                help="支持格式：000001 或 000001.SZ"
+                help="支持格式：000001 或 000001.SZ",
+                key="single_stock_input"
             )
             stock_codes = [stock_codes_input.strip()]
         else:
@@ -613,6 +1182,7 @@ def backtest_main():
                 "股票代码（每行一个）",
                 value="000001\n600000",
                 height=100,
+                key="single_stock_area"
             )
             stock_codes = [code.strip() for code in stock_codes_input.strip().split("\n") if code.strip()]
 
@@ -624,49 +1194,52 @@ def backtest_main():
             options=list(factor_options.keys()),
             format_func=lambda x: f"{x} - {factor_options.get(x, '')}",
             default=[],
+            key="single_factors"
         )
 
         # 回测参数
         st.markdown("### 回测参数")
-        initial_capital = st.number_input("初始资金", value=1000000, min_value=10000, step=10000)
-        commission_rate = st.number_input("费率(%)", value=0.03, min_value=0.0, max_value=1.0, step=0.01) / 100
-        slippage = st.number_input("滑点(%)", value=0.00, min_value=0.0, max_value=1.0, step=0.01, help="买卖时的价格滑点百分比，例如0.01表示万分之一") / 100
+        initial_capital = st.number_input("初始资金", value=1000000, min_value=10000, step=10000, key="single_initial")
+        commission_rate = st.number_input("费率(%)", value=0.03, min_value=0.0, max_value=1.0, step=0.01, key="single_comm") / 100
+        slippage = st.number_input("滑点(%)", value=0.00, min_value=0.0, max_value=1.0, step=0.01, help="买卖时的价格滑点百分比，例如0.01表示万分之一", key="single_slippage") / 100
 
         # 策略类型
         strategy_type = st.selectbox(
             "策略类型",
             options=["单因子分层", "多因子组合"],
             index=0,
+            key="single_strategy_type"
         )
 
         if strategy_type == "单因子分层":
-            percentile = st.slider("分层阈值（百分位）", 0, 100, 50)
-            direction = st.selectbox("交易方向", ["long", "short"])
-            n_quantiles = st.slider("分层数量", 3, 10, 5)
+            percentile = st.slider("分层阈值（百分位）", 0, 100, 50, key="single_percentile")
+            direction = st.selectbox("交易方向", ["long", "short"], key="single_direction")
+            n_quantiles = st.slider("分层数量", 3, 10, 5, key="single_quantiles")
         else:
             weight_method = st.selectbox(
                 "权重分配",
                 ["等权重", "风险平价"],
                 index=0,
+                key="single_weight_method"
             )
-            percentile = st.slider("组合分层阈值（百分位）", 0, 100, 50)
-            direction = st.selectbox("交易方向", ["long", "short"])
+            percentile = st.slider("组合分层阈值（百分位）", 0, 100, 50, key="single_portfolio_percentile")
+            direction = st.selectbox("交易方向", ["long", "short"], key="single_portfolio_direction")
 
         # 时间范围
         default_end = datetime.now()
         default_start = default_end - timedelta(days=365*3)
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input("开始日期", value=default_start)
+            start_date = st.date_input("开始日期", value=default_start, key="single_start_date")
         with col2:
-            end_date = st.date_input("结束日期", value=default_end)
+            end_date = st.date_input("结束日期", value=default_end, key="single_end_date")
 
         # 运行回测按钮
-        run_backtest = st.button("运行回测", type="primary", use_container_width=True)
+        run_backtest = st.button("运行回测", type="primary", use_container_width=True, key="run_single_backtest")
 
         # 历史回测记录
         st.divider()
-        if st.button("查看历史记录"):
+        if st.button("查看历史记录", key="view_history"):
             st.session_state.show_backtest_history = True
 
     # 显示历史记录
@@ -702,15 +1275,16 @@ def backtest_main():
                     "选择要删除的记录",
                     options=range(len(history)),
                     format_func=lambda i: f"{history[i].strategy_name} - {history[i].created_at.strftime('%Y-%m-%d')}",
+                    key="select_history_record"
                 )
-                if st.button("确认删除选中记录", type="secondary"):
+                if st.button("确认删除选中记录", type="secondary", key="delete_history_record"):
                     if st.session_state.backtest_repo.delete_by_id(history[record_to_delete].id):
                         st.success("删除成功")
                         st.rerun()
                     else:
                         st.error("删除失败")
 
-        if st.button("返回回测配置"):
+        if st.button("返回回测配置", key="return_from_history"):
             st.session_state.show_backtest_history = False
             st.rerun()
 
@@ -875,7 +1449,7 @@ def backtest_main():
         st.subheader("回测结果")
 
         # Tab1: 概览, Tab2: 净值分析, Tab3: 分层分析, Tab4: 交易日志
-        tab1, tab2, tab3, tab4 = st.tabs(["概览", "净值分析", "分层分析", "交易日志"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["概览", "净值分析", "分层分析", "交易日志", "持仓分析"])
 
         with tab1:
             # 策略说明
@@ -1464,6 +2038,528 @@ def backtest_main():
                 - 联系开发者添加交易记录提取功能
                 """)
 
+        with tab5:
+            st.markdown("### 持仓分析")
+
+            # 检查是否有回测结果
+            if "backtest_result" in st.session_state and st.session_state.backtest_result:
+                result = st.session_state.backtest_result
+
+                # 检查是否有持仓数据
+                if "positions" in result and result["positions"] is not None:
+                    from backend.services.position_analysis_service import position_analysis_service
+
+                    positions = result["positions"]
+                    initial_capital = result.get("initial_capital", 1000000)
+
+                    # 执行持仓分析
+                    with st.spinner("正在分析持仓数据..."):
+                        analysis = position_analysis_service.analyze_positions(
+                            positions=positions,
+                            initial_capital=initial_capital
+                        )
+
+                        concentration = position_analysis_service.calculate_position_concentration(
+                            positions=positions
+                        )
+
+                        position_history = position_analysis_service.analyze_position_history(
+                            positions=positions,
+                            window=20
+                        )
+
+                    # 1. 基础统计指标
+                    st.markdown("#### 📊 基础持仓统计")
+
+                    basic_stats = analysis["basic_stats"]
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric(
+                            "平均持仓",
+                            f"{basic_stats['avg_position']:.2%}",
+                            help="平均持仓比例"
+                        )
+                    with col2:
+                        st.metric(
+                            "最大持仓",
+                            f"{basic_stats['max_position']:.2%}",
+                            help="最大持仓比例"
+                        )
+                    with col3:
+                        st.metric(
+                            "空仓天数占比",
+                            f"{basic_stats['position_zero_ratio']:.2%}",
+                            help="空仓天数占总天数的比例"
+                        )
+                    with col4:
+                        st.metric(
+                            "满仓天数占比",
+                            f"{basic_stats['position_full_ratio']:.2%}",
+                            help="满仓（>=90%）天数占比"
+                        )
+
+                    st.markdown("---")
+
+                    # 2. 持仓时长统计
+                    st.markdown("#### ⏱️ 持仓时长统计")
+
+                    holding_stats = analysis["holding_stats"]
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric(
+                            "持仓时段数",
+                            holding_stats["invested_periods"],
+                            help="独立的持仓时段数量"
+                        )
+                    with col2:
+                        st.metric(
+                            "总持仓天数",
+                            holding_stats["total_invested_days"],
+                            help="实际持仓的天数总和"
+                        )
+                    with col3:
+                        st.metric(
+                            "平均持仓周期",
+                            f"{holding_stats['avg_holding_period']:.1f} 天",
+                            help="每个持仓时段平均持续天数"
+                        )
+
+                    st.markdown("---")
+
+                    # 3. 持仓价值分析
+                    st.markdown("#### 💰 持仓价值分析")
+
+                    position_values = analysis["position_values"]
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.metric(
+                            "平均持仓价值",
+                            f"¥{position_values['avg_position_value']:,.0f}",
+                            help="平均持仓金额"
+                        )
+                    with col2:
+                        st.metric(
+                            "最大持仓价值",
+                            f"¥{position_values['max_position_value']:,.0f}",
+                            help="最大持仓金额"
+                        )
+
+                    st.markdown("---")
+
+                    # 4. 持仓集中度分析
+                    st.markdown("#### 🎯 持仓集中度分析")
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric(
+                            "集中度比率",
+                            f"{concentration['concentration_ratio']:.2%}",
+                            help="前N大持仓占比（单股票为100%）"
+                        )
+                    with col2:
+                        st.metric(
+                            "HHI指数",
+                            f"{concentration['herfindahl_index']:.4f}",
+                            help="赫芬达尔-赫希曼指数（1表示完全集中）"
+                        )
+                    with col3:
+                        st.metric(
+                            "基尼系数",
+                            f"{concentration['gini_coefficient']:.4f}",
+                            help="0表示完全平均，1表示完全不平均"
+                        )
+
+                    # HHI走势图
+                    if len(position_history) > 0:
+                        st.markdown("##### HHI 指数走势")
+
+                        # 计算滚动HHI
+                        hhi_series = pd.Series(index=positions.index, dtype=float)
+                        for i in range(len(positions)):
+                            if i >= 20:
+                                window_positions = positions.iloc[i-20:i+1]
+                                # 单股票情况，HHI始终为1
+                                hki_val = (window_positions.abs().values ** 2).sum() / (
+                                    window_positions.abs().sum() ** 2 if window_positions.abs().sum() > 0 else 1
+                                )
+                                hhi_series.iloc[i] = hki_val
+
+                        fig_hhi = go.Figure()
+                        fig_hhi.add_trace(go.Scatter(
+                            x=hhi_series.index,
+                            y=hhi_series.values,
+                            mode='lines',
+                            name='HHI指数',
+                            line=dict(color='#FF6B6B', width=2)
+                        ))
+
+                        fig_hhi.update_layout(
+                            title="持仓集中度（HHI）走势",
+                            xaxis_title="日期",
+                            yaxis_title="HHI指数",
+                            height=400,
+                            hovermode='x unified',
+                            margin=dict(l=60, r=60, t=40, b=60)
+                        )
+
+                        st.plotly_chart(fig_hhi, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # 5. 换手率分析
+                    st.markdown("#### 🔄 换手率分析")
+
+                    turnover_stats = analysis["position_changes"]
+                    total_turnover = analysis["turnover"]
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric(
+                            "总换手率",
+                            f"{total_turnover:.2%}",
+                            help="累计换手率"
+                        )
+                    with col2:
+                        st.metric(
+                            "平均持仓变化",
+                            f"{turnover_stats['avg_position_change']:.2%}",
+                            help="每日平均持仓变化幅度"
+                        )
+                    with col3:
+                        st.metric(
+                            "最大持仓变化",
+                            f"{turnover_stats['max_position_change']:.2%}",
+                            help="单日最大持仓变化幅度"
+                        )
+
+                    # 换手率走势图
+                    if len(position_history) > 0:
+                        st.markdown("##### 换手率走势")
+
+                        fig_turnover = go.Figure()
+
+                        fig_turnover.add_trace(go.Scatter(
+                            x=position_history.index,
+                            y=position_history["position_change"],
+                            mode='lines',
+                            name='持仓变化',
+                            line=dict(color='#4ECDC4', width=1.5),
+                            fill='tozeroy',
+                            fillcolor='rgba(78, 205, 196, 0.2)'
+                        ))
+
+                        # 添加滚动平均
+                        rolling_avg = position_history["position_change"].rolling(window=20).mean()
+                        fig_turnover.add_trace(go.Scatter(
+                            x=position_history.index,
+                            y=rolling_avg,
+                            mode='lines',
+                            name='20日平均',
+                            line=dict(color='#FF6B6B', width=2, dash='dash')
+                        ))
+
+                        fig_turnover.update_layout(
+                            title="持仓变化（换手率）走势",
+                            xaxis_title="日期",
+                            yaxis_title="持仓变化比例",
+                            height=400,
+                            hovermode='x unified',
+                            margin=dict(l=60, r=60, t=40, b=60),
+                            legend=dict(
+                                yanchor="top",
+                                y=0.99,
+                                xanchor="left",
+                                x=0.01
+                            )
+                        )
+
+                        st.plotly_chart(fig_turnover, use_container_width=True)
+
+                    # 换手率分布直方图
+                    st.markdown("##### 换手率分布")
+
+                    fig_hist = go.Figure()
+                    fig_hist.add_trace(go.Histogram(
+                        x=position_history["position_change"].dropna(),
+                        nbinsx=50,
+                        name='换手率分布',
+                        marker_color='#4ECDC4',
+                        opacity=0.75
+                    ))
+
+                    fig_hist.update_layout(
+                        title="持仓变化分布直方图",
+                        xaxis_title="持仓变化比例",
+                        yaxis_title="频数",
+                        height=350,
+                        margin=dict(l=60, r=60, t=40, b=60)
+                    )
+
+                    st.plotly_chart(fig_hist, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # 换手率成本分析
+                    st.markdown("#### 💰 换手率成本分析")
+                    st.info("💡 估算交易成本对收益的影响")
+
+                    # 获取回测配置中的费率
+                    config = st.session_state.backtest_result.get("config", {})
+                    commission_rate = config.get("commission_rate", 0.0003)  # 默认万三
+                    slippage = config.get("slippage", 0.0)  # 滑点
+
+                    # 计算换手率成本
+                    position_changes = position_history["position_change"].dropna()
+                    total_turnover = position_changes.sum()
+
+                    # 成本估算
+                    # 1. 手续费成本
+                    commission_cost = total_turnover * commission_rate * initial_capital
+
+                    # 2. 滑点成本（简化估算）
+                    if slippage > 0:
+                        # 假设每次换手有一半买入一半卖出
+                        slippage_cost = total_turnover * slippage * initial_capital * 0.5
+                    else:
+                        slippage_cost = 0
+
+                    # 3. 总成本
+                    total_cost = commission_cost + slippage_cost
+
+                    # 4. 年化成本（按交易日252天）
+                    n_days = len(position_changes)
+                    if n_days > 0:
+                        annualized_cost = total_cost * (252 / n_days)
+                    else:
+                        annualized_cost = 0
+
+                    # 5. 成本占初始资金比例
+                    cost_ratio = total_cost / initial_capital if initial_capital > 0 else 0
+
+                    # 显示成本统计
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric(
+                            "手续费成本",
+                            f"¥{commission_cost:,.0f}",
+                            help=f"费率 {commission_rate:.4%} × 换手率 × 初始资金"
+                        )
+                    with col2:
+                        st.metric(
+                            "滑点成本",
+                            f"¥{slippage_cost:,.0f}",
+                            help=f"滑点 {slippage:.4%} × 换手率 × 初始资金 × 0.5"
+                        )
+                    with col3:
+                        st.metric(
+                            "总交易成本",
+                            f"¥{total_cost:,.0f}",
+                            help="手续费 + 滑点"
+                        )
+                    with col4:
+                        st.metric(
+                            "成本占比",
+                            f"{cost_ratio:.2%}",
+                            help="总成本占初始资金的比例"
+                        )
+
+                    # 成本分解饼图
+                    st.markdown("##### 成本构成")
+
+                    fig_cost = go.Figure()
+                    fig_cost.add_trace(go.Pie(
+                        labels=['手续费成本', '滑点成本'],
+                        values=[commission_cost, slippage_cost],
+                        marker=dict(colors=['#FF6B6B', '#4ECDC4']),
+                        textinfo='percent+label',
+                        hovertemplate='%{label}: ¥%{value:,.0f}<extra></extra>'
+                    ))
+
+                    fig_cost.update_layout(
+                        title="交易成本构成",
+                        height=400,
+                        margin=dict(l=60, r=60, t=40, b=60)
+                    )
+
+                    st.plotly_chart(fig_cost, use_container_width=True)
+
+                    # 成本走势（累计）
+                    st.markdown("##### 累计成本走势")
+
+                    # 计算每日成本
+                    daily_cost = (
+                        position_changes * commission_rate * initial_capital +
+                        (position_changes * slippage * initial_capital * 0.5 if slippage > 0 else 0)
+                    )
+                    cumulative_cost = daily_cost.cumsum()
+
+                    fig_cumulative = go.Figure()
+                    fig_cumulative.add_trace(go.Scatter(
+                        x=cumulative_cost.index,
+                        y=cumulative_cost.values,
+                        mode='lines',
+                        name='累计成本',
+                        line=dict(color='#FF6B6B', width=2),
+                        fill='tozeroy'
+                    ))
+
+                    fig_cumulative.update_layout(
+                        title="累计交易成本走势",
+                        xaxis_title="日期",
+                        yaxis_title="累计成本（元）",
+                        height=400,
+                        hovermode='x unified',
+                        margin=dict(l=60, r=60, t=40, b=60)
+                    )
+
+                    st.plotly_chart(fig_cumulative, use_container_width=True)
+
+                    # 成本解释和建议
+                    with st.expander("💡 成本分析与优化建议", expanded=False):
+                        st.markdown(f"""
+                        ### 交易成本构成
+
+                        **1. 手续费成本**
+                        - 费率：{commission_rate:.4%}（万{commission_rate*10000:.0f}）
+                        - 计算：换手率 × 费率 × 初始资金
+                        - 影响：每1%换手率产生 {commission_rate*100:.2%} 的成本
+
+                        **2. 滑点成本**
+                        - 滑点率：{slippage:.4%}
+                        - 计算：换手率 × 滑点率 × 初始资金 × 0.5
+                        - 说明：假设买入和卖出各承担一半滑点
+
+                        **成本评估**：
+                        - 总成本：¥{total_cost:,.0f}
+                        - 成本占比：{cost_ratio:.2%}（占初始资金）
+                        - 年化成本：¥{annualized_cost:,.0f}
+
+                        ### 优化建议
+
+                        {'⚠️ 高成本警告：换手率较高，交易成本占比超过5%！建议降低调仓频率。' if cost_ratio > 0.05 else '✅ 成本合理：交易成本在可接受范围内。' if cost_ratio > 0.02 else '✅ 低成本：交易成本控制良好。'}
+
+                        **降低成本的方法**：
+                        1. **降低调仓频率**：从高频调整为中频或低频
+                        2. **优化调仓策略**：只在因子信号强时调仓
+                        3. **批量交易**：减少小额频繁交易
+                        4. **选择低费率券商**：降低佣金费率
+                        5. **使用算法交易**：减少市场冲击成本
+                        """)
+
+                    st.markdown("---")
+
+                    # 6. 持仓数量统计
+                    st.markdown("#### 📈 持仓数量统计")
+
+                    # 计算每日持仓数量（单股票为1或0）
+                    position_count = (positions.abs() > 0).astype(int)
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric(
+                            "平均持仓数",
+                            f"{position_count.mean():.2f}",
+                            help="每日平均持仓股票数量"
+                        )
+                    with col2:
+                        st.metric(
+                            "最大持仓数",
+                            f"{position_count.max():.0f}",
+                            help="最多持仓股票数量"
+                        )
+                    with col3:
+                        st.metric(
+                            "最小持仓数",
+                            f"{position_count.min():.0f}",
+                            help="最少持仓股票数量"
+                        )
+
+                    # 持仓数量走势图
+                    st.markdown("##### 持仓数量走势")
+
+                    fig_count = go.Figure()
+                    fig_count.add_trace(go.Scatter(
+                        x=position_count.index,
+                        y=position_count.values,
+                        mode='lines',
+                        name='持仓数量',
+                        line=dict(color='#95E1D3', width=2),
+                        fill='tozeroy'
+                    ))
+
+                    fig_count.update_layout(
+                        title="持仓数量随时间变化",
+                        xaxis_title="日期",
+                        yaxis_title="持仓股票数量",
+                        height=400,
+                        hovermode='x unified',
+                        margin=dict(l=60, r=60, t=40, b=60)
+                    )
+
+                    st.plotly_chart(fig_count, use_container_width=True)
+
+                    # 功能说明
+                    with st.expander("📖 持仓分析指标说明", expanded=False):
+                        st.markdown("""
+                        ### 持仓分析指标解释
+
+                        **基础持仓统计**：
+                        - **平均持仓**：所有交易日持仓比例的平均值
+                        - **最大持仓**：历史最大持仓比例
+                        - **空仓天数占比**：空仓天数占总交易日的比例
+                        - **满仓天数占比**：持仓>=90%的天数占比
+
+                        **持仓时长统计**：
+                        - **持仓时段数**：独立持仓时段的数量（从开仓到平仓为一个时段）
+                        - **总持仓天数**：所有持仓时段的实际天数总和
+                        - **平均持仓周期**：每个持仓时段平均持续的天数
+
+                        **持仓集中度**：
+                        - **HHI指数（赫芬达尔-赫希曼指数）**：
+                          - 取值范围：0到1
+                          - 1表示完全集中（单只股票满仓）
+                          - 0表示完全分散（无限多股票均仓）
+                          - 数值越大表示持仓越集中
+
+                        **换手率**：
+                        - **持仓变化**：当日持仓与昨日持仓的绝对差值
+                        - **总换手率**：所有交易日持仓变化的累计总和
+                        - **换手率越高**表示交易越频繁，交易成本越高
+
+                        **注意**：当前为单股票回测，部分指标（如HHI、集中度）会显示极端值。
+                        多股票组合回测时，这些指标将更有参考价值。
+                        """)
+
+                else:
+                    st.info("""
+                    **持仓数据未找到**
+
+                    当前回测结果中未包含持仓数据。这可能是因为：
+                    1. 回测结果不完整
+                    2. 使用了不支持持仓分析的回测方法
+
+                    **建议**：请重新运行回测，或查看其他分析标签。
+                    """)
+            else:
+                st.info("""
+                **请先运行回测**
+
+                持仓分析需要基于回测结果进行。请先配置参数并运行回测。
+
+                **操作步骤**：
+                1. 在左侧配置回测参数
+                2. 选择股票代码和因子
+                3. 点击"运行回测"按钮
+                4. 回测完成后，回到此标签查看持仓分析
+                """)
+
 
 # ============ 主应用 ============
 def main():
@@ -1476,7 +2572,7 @@ def main():
 
         page = st.radio(
             "选择功能",
-            ["因子管理", "因子分析", "策略回测"],
+            ["因子管理", "因子分析", "因子挖掘", "组合分析", "策略回测"],
             label_visibility="collapsed",
         )
 
@@ -1542,7 +2638,7 @@ def main():
     if page == "因子管理":
         st.title("因子管理")
 
-        tab1, tab2 = st.tabs(["因子列表", "新增因子"])
+        tab1, tab2, tab3 = st.tabs(["因子列表", "新增因子", "批量生成"])
 
         # Tab1: 因子列表
         with tab1:
@@ -1914,6 +3010,401 @@ def main():
                 st.error(st.session_state["create_error"])
                 del st.session_state["create_error"]
 
+        # Tab3: 批量生成因子
+        with tab3:
+            st.subheader("批量生成因子")
+            st.info("💡 基于现有因子通过组合、统计变换等方式批量生成新因子")
+
+            # 侧边栏配置
+            with st.sidebar:
+                st.markdown("### 生成配置")
+
+                # 选择基础因子
+                all_factors_list = factor_service.get_all_factors()
+                base_factor_names = [f["name"] for f in all_factors_list]
+
+                selected_base_factors = st.multiselect(
+                    "选择基础因子",
+                    options=base_factor_names,
+                    default=base_factor_names[:5] if len(base_factor_names) >= 5 else base_factor_names,
+                    help="选择用于生成新因子的基础因子",
+                    key="gen_base_factors"
+                )
+
+                # 数据配置（用于预筛选）
+                st.markdown("### 数据配置（预筛选用）")
+                stock_code_for_test = st.text_input(
+                    "测试股票代码",
+                    value="000001",
+                    help="用于因子预筛选计算的测试股票代码"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    start_date = st.date_input(
+                        "开始日期",
+                        value=datetime.now() - timedelta(days=365),
+                        key="gen_start_date"
+                    )
+                with col2:
+                    end_date = st.date_input(
+                        "结束日期",
+                        value=datetime.now(),
+                        key="gen_end_date"
+                    )
+
+                # 生成方式
+                st.markdown("### 生成方式")
+                gen_binary = st.checkbox("二元运算组合", value=True, help="如: close + sma_20")
+                gen_statistical = st.checkbox("统计变换", value=True, help="如: rank(close), zscore(volume)")
+                gen_technical = st.checkbox("技术指标", value=False, help="如: SMA, EMA, RSI")
+
+                # 生成参数
+                st.markdown("### 生成参数")
+                max_depth = st.slider("最大嵌套层数", 1, 3, 2, help="表达式嵌套的最大深度")
+                max_combinations = st.slider("最大生成数量", 10, 200, 50, help="最多生成的因子数量")
+
+                # 生成按钮
+                generate_btn = st.button("🚀 开始生成", type="primary", use_container_width=True, key="generate_factors")
+
+            # 主内容区
+            if not selected_base_factors:
+                st.warning("⚠️ 请至少选择一个基础因子")
+            else:
+                st.info(f"👈 配置生成参数后点击「开始生成」")
+
+                # 显示预计生成的因子数量
+                estimated_count = 0
+                if gen_binary:
+                    estimated_count += min(len(selected_base_factors) * (len(selected_base_factors) - 1) * 4, max_combinations)
+                if gen_statistical:
+                    estimated_count += min(len(selected_base_factors) * 6, max_combinations // 2)
+                if gen_technical:
+                    estimated_count += min(len(selected_base_factors) * 4, max_combinations // 4)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("预计生成数量", min(estimated_count, max_combinations))
+                with col2:
+                    st.metric("基础因子数", len(selected_base_factors))
+
+            # 执行生成
+            if generate_btn and selected_base_factors:
+                with st.spinner("正在生成因子，请稍候..."):
+                    try:
+                        from backend.services.factor_generator_service import factor_generator_service
+
+                        generated_factors = []
+
+                        # 1. 二元运算组合
+                        if gen_binary:
+                            st.info("🔄 生成二元运算组合...")
+                            binary_exprs = factor_generator_service.generate_binary_combinations(
+                                selected_base_factors,
+                                max_depth=max_depth,
+                                max_combinations=max_combinations // (2 if gen_statistical else 1)
+                            )
+
+                            for i, expr in enumerate(binary_exprs):
+                                generated_factors.append({
+                                    "name": f"binary_{i+1}",
+                                    "expression": expr,
+                                    "type": "二元运算"
+                                })
+
+                        # 2. 统计变换
+                        if gen_statistical:
+                            st.info("🔄 生成统计变换因子...")
+                            stat_exprs = factor_generator_service.generate_statistical_combinations(
+                                selected_base_factors,
+                                max_combinations=max_combinations // 2
+                            )
+
+                            for i, expr in enumerate(stat_exprs):
+                                generated_factors.append({
+                                    "name": f"stat_{i+1}",
+                                    "expression": expr,
+                                    "type": "统计变换"
+                                })
+
+                        # 3. 技术指标
+                        if gen_technical:
+                            st.info("🔄 生成技术指标因子...")
+                            tech_exprs = factor_generator_service.generate_indicator_combinations(
+                                selected_base_factors,
+                                max_combinations=max_combinations // 4
+                            )
+
+                            for i, expr in enumerate(tech_exprs):
+                                generated_factors.append({
+                                    "name": f"tech_{i+1}",
+                                    "expression": expr,
+                                    "type": "技术指标"
+                                })
+
+                        st.success(f"✅ 成功生成 {len(generated_factors)} 个因子！")
+
+                        # 因子预筛选功能
+                        st.markdown("---")
+                        st.subheader("🔍 因子预筛选")
+                        st.info("💡 基于IC、IR等指标筛选有潜力的因子")
+
+                        # 筛选参数配置
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            ic_threshold = st.number_input(
+                                "IC绝对值阈值",
+                                min_value=0.01,
+                                max_value=0.1,
+                                value=0.03,
+                                step=0.01,
+                                help="选择IC绝对值大于等于此阈值的因子"
+                            )
+                        with col2:
+                            ir_threshold = st.number_input(
+                                "IR阈值",
+                                min_value=0.1,
+                                max_value=5.0,
+                                value=0.5,
+                                step=0.1,
+                                help="选择IR大于等于此阈值的因子"
+                            )
+                        with col3:
+                            min_valid_ratio = st.number_input(
+                                "最小有效数据比例",
+                                min_value=0.5,
+                                max_value=1.0,
+                                value=0.7,
+                                step=0.05,
+                                help="选择有效数据比例大于等于此阈值的因子"
+                            )
+
+                        # 执行预筛选按钮
+                        if st.button("🚀 执行预筛选", type="primary", key="preselect_factors"):
+                            try:
+                                from backend.services.factor_generator_service import factor_generator_service
+
+                                # 获取用于计算的股票数据
+                                with st.spinner("正在获取测试数据..."):
+                                    test_data = data_service.get_stock_data(
+                                        stock_code_for_test,
+                                        start_date.strftime("%Y-%m-%d"),
+                                        end_date.strftime("%Y-%m-%d")
+                                    )
+                                    if test_data.empty or "close" not in test_data.columns:
+                                        st.error("❌ 无法获取测试数据，请检查股票代码和日期范围")
+                                        display_selected = False
+                                    else:
+                                        returns = test_data["close"].pct_change().dropna()  # 计算收益率
+                                        st.success(f"✅ 数据获取成功：{len(test_data)} 条记录")
+
+                                        # 准备因子数据
+                                        factor_data_map = {}
+                                        valid_factors = []
+                                        for factor_info in generated_factors:
+                                            expr = factor_info["expression"]
+                                            try:
+                                                factor_result = factor_service.calculate_factor(
+                                                    factor_name="temp",
+                                                    data=test_data,
+                                                    custom_code=expr  # 使用自定义表达式计算
+                                                )
+                                                if factor_result and "factor_values" in factor_result:
+                                                    factor_data_map[expr] = factor_result["factor_values"]["factor_value"].dropna()
+                                                    valid_factors.append(factor_info)
+                                            except Exception as e:
+                                                st.warning(f"⚠️ 因子 {expr} 计算失败，跳过: {str(e)}")
+                                                continue
+
+                                        if factor_data_map:
+                                            # 执行预筛选
+                                            selected_factors = factor_generator_service.preselect_factors(
+                                                factors=valid_factors,
+                                                factor_data_map=factor_data_map,
+                                                return_data=returns,
+                                                ic_threshold=ic_threshold,
+                                                ir_threshold=ir_threshold,
+                                                min_valid_ratio=min_valid_ratio
+                                            )
+
+                                            st.success(f"✅ 筛选完成！从 {len(generated_factors)} 个因子中筛选出 {len(selected_factors)} 个优质因子")
+
+                                            # 存储筛选后的因子到session_state
+                                            st.session_state.selected_factors = selected_factors
+
+                                            # 显示筛选结果
+                                            display_selected = True
+                                        else:
+                                            st.warning("⚠️ 没有有效因子可筛选")
+                                            display_selected = False
+
+                            except Exception as e:
+                                st.error(f"❌ 预筛选失败: {str(e)}")
+                                import traceback
+                                st.error(traceback.format_exc())
+                                display_selected = False
+                        else:
+                            display_selected = False
+
+                        # 显示筛选结果（如果有）
+                        if "selected_factors" in st.session_state and len(st.session_state.selected_factors) > 0:
+                            if not display_selected:
+                                st.markdown("---")
+                                st.subheader("筛选结果")
+                                st.info(f"💡 已筛选出 {len(st.session_state.selected_factors)} 个优质因子")
+
+                            # 显示筛选后的因子
+                            selected_df = pd.DataFrame(st.session_state.selected_factors)
+
+                            # 分页显示
+                            page_size = 20
+                            total_pages = (len(selected_df) + page_size - 1) // page_size
+
+                            if total_pages > 1:
+                                page = st.number_input("页码", min_value=1, max_value=total_pages, value=1, key="selected_page")
+                                start_idx = (page - 1) * page_size
+                                end_idx = min(start_idx + page_size, len(selected_df))
+                                display_df = selected_df.iloc[start_idx:end_idx]
+                            else:
+                                display_df = selected_df
+
+                            st.dataframe(
+                                display_df,
+                                column_config={
+                                    "name": st.column_config.TextColumn("名称", width="medium"),
+                                    "expression": st.column_config.TextColumn("表达式", width="large"),
+                                    "type": st.column_config.TextColumn("类型", width="small"),
+                                    "ic": st.column_config.NumberColumn("IC", format="%.4f"),
+                                    "ir": st.column_config.NumberColumn("IR", format="%.4f"),
+                                    "valid_ratio": st.column_config.NumberColumn("有效数据", format="%.2%")
+                                },
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                            # 筛选结果的批量操作
+                            col_save, col_export, col_clear = st.columns(3)
+                            with col_save:
+                                if st.button("💾 保存筛选结果", type="primary", key="save_selected_factors"):
+                                    saved_count = 0
+                                    failed_count = 0
+                                    for factor in st.session_state.selected_factors:
+                                        try:
+                                            factor_service.create_factor(
+                                                name=f"sel_{factor['name']}",
+                                                code=factor['expression'],
+                                                description=f"筛选出的{factor['type']}因子: {factor['expression']}"
+                                            )
+                                            saved_count += 1
+                                        except Exception as e:
+                                            failed_count += 1
+
+                                    st.success(f"✅ 成功保存 {saved_count} 个因子，失败 {failed_count} 个")
+
+                            with col_export:
+                                if st.button("📥 导出筛选结果为CSV", key="export_selected_csv"):
+                                    import io
+                                    output = io.StringIO()
+                                    export_df = pd.DataFrame(st.session_state.selected_factors)
+                                    export_df.to_csv(output, index=False, encoding='utf-8-sig')
+                                    st.download_button(
+                                        label="⬇️ 下载CSV",
+                                        data=output.getvalue(),
+                                        file_name=f"selected_factors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        key="download_selected_csv"
+                                    )
+
+                            with col_clear:
+                                if st.button("🗑️ 清空筛选结果", key="clear_selected"):
+                                    if "selected_factors" in st.session_state:
+                                        del st.session_state.selected_factors
+                                    st.rerun()
+
+                        # 显示生成的因子（完整列表）
+                        st.markdown("---")
+                        st.subheader("📋 所有生成的因子")
+
+                        # 使用session_state存储生成的因子
+                        if "generated_factors" not in st.session_state:
+                            st.session_state.generated_factors = []
+
+                        st.session_state.generated_factors = generated_factors
+
+                        # 显示因子列表
+                        if generated_factors:
+                            # 创建DataFrame显示
+                            gen_df = pd.DataFrame(generated_factors)
+
+                            # 分页显示
+                            page_size = 20
+                            total_pages = (len(gen_df) + page_size - 1) // page_size
+
+                            if total_pages > 1:
+                                page = st.number_input("页码", min_value=1, max_value=total_pages, value=1)
+                                start_idx = (page - 1) * page_size
+                                end_idx = min(start_idx + page_size, len(gen_df))
+                                display_df = gen_df.iloc[start_idx:end_idx]
+                            else:
+                                display_df = gen_df
+
+                            st.dataframe(
+                                display_df,
+                                column_config={
+                                    "name": st.column_config.TextColumn("名称", width="medium"),
+                                    "expression": st.column_config.TextColumn("表达式", width="large"),
+                                    "type": st.column_config.TextColumn("类型", width="small")
+                                },
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                            # 批量操作
+                            st.markdown("---")
+                            col1, col2, col3 = st.columns(3)
+
+                            with col1:
+                                if st.button("💾 全部保存到因子库", type="primary", key="save_all_generated"):
+                                    saved_count = 0
+                                    failed_count = 0
+                                    for factor in generated_factors:
+                                        try:
+                                            factor_service.create_factor(
+                                                name=f"gen_{factor['name']}",
+                                                code=factor['expression'],
+                                                description=f"批量生成的{factor['type']}因子: {factor['expression']}"
+                                            )
+                                            saved_count += 1
+                                        except Exception as e:
+                                            failed_count += 1
+
+                                    st.success(f"✅ 成功保存 {saved_count} 个因子，失败 {failed_count} 个")
+
+                            with col2:
+                                if st.button("📥 导出为CSV", key="export_generated_csv"):
+                                    import io
+                                    output = io.StringIO()
+                                    pd.DataFrame(generated_factors)[["name", "expression", "type"]].to_csv(output, index=False, encoding='utf-8-sig')
+                                    st.download_button(
+                                        label="⬇️ 下载CSV",
+                                        data=output.getvalue(),
+                                        file_name=f"generated_factors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv",
+                                        key="download_gen_csv"
+                                    )
+
+                            with col3:
+                                if st.button("🗑️ 清空", key="clear_generated"):
+                                    st.session_state.generated_factors = []
+                                    st.rerun()
+                        else:
+                            st.warning("⚠️ 未生成任何因子，请检查配置")
+
+                    except Exception as e:
+                        st.error(f"❌ 生成失败: {str(e)}")
+                        import traceback
+                        st.error(traceback.format_exc())
+
     # 因子分析页面
     elif page == "因子分析":
         st.title("因子分析")
@@ -1961,8 +3452,19 @@ def main():
             with col2:
                 end_date = st.date_input("结束日期", value=default_end)
 
+            # 因子中性化选项
+            st.markdown("---")
+            st.markdown("### 因子中性化")
+            enable_neutralization = st.checkbox("启用因子中性化", value=False, help="去除市值或行业对因子的影响")
+            neutralization_method = st.selectbox(
+                "中性化方法",
+                ["无", "市值中性化", "行业中性化"],
+                index=0,
+                disabled=not enable_neutralization
+            )
+
             # 分析按钮
-            analyze_btn = st.button("开始分析", type="primary", use_container_width=True)
+            analyze_btn = st.button("📊 开始分析", type="primary", use_container_width=True)
 
         # 执行分析
         if analyze_btn:
@@ -1981,15 +3483,58 @@ def main():
                             use_cache=True,
                         )
 
+                        # 应用因子中性化
+                        if enable_neutralization and neutralization_method != "无":
+                            from backend.services.factor_neutralization_service import factor_neutralization_service
+
+                            st.info(f"🔄 正在应用{neutralization_method}...")
+
+                            # 对每个因子应用中性化
+                            for factor_name in selected_factors:
+                                if factor_name in results.get("factor_data", {}):
+                                    factor_df = results["factor_data"][factor_name]
+
+                                    try:
+                                        if neutralization_method == "市值中性化":
+                                            # 检查是否有市值列
+                                            if "market_cap" in factor_df.columns:
+                                                neutralized = factor_neutralization_service.neutralize_market_cap(
+                                                    factor_df,
+                                                    factor_name,
+                                                    "market_cap"
+                                                )
+                                                factor_df["factor_value"] = neutralized
+                                                st.info(f"✅ 因子 {factor_name} 已应用市值中性化")
+                                            else:
+                                                st.warning(f"⚠️ 因子 {factor_name} 缺少市值数据，跳过中性化")
+
+                                        elif neutralization_method == "行业中性化":
+                                            # 检查是否有行业列
+                                            if "industry" in factor_df.columns:
+                                                neutralized = factor_neutralization_service.neutralize_industry(
+                                                    factor_df,
+                                                    factor_name,
+                                                    "industry"
+                                                )
+                                                factor_df["factor_value"] = neutralized
+                                                st.info(f"✅ 因子 {factor_name} 已应用行业中性化")
+                                            else:
+                                                st.warning(f"⚠️ 因子 {factor_name} 缺少行业数据，跳过中性化")
+
+                                    except Exception as e:
+                                        st.warning(f"⚠️ 因子 {factor_name} 中性化失败: {str(e)}")
+
                         # 保存到session state供其他页面使用
                         st.session_state["analysis_results"] = results
                         st.session_state["analysis_stock_codes"] = stock_codes
                         st.session_state["analysis_factors"] = selected_factors
 
-                        st.success("分析完成！")
+                        st.success("✅ 分析完成！")
 
                     except Exception as e:
-                        st.error(f"分析失败: {e}")
+                        st.error(f"❌ 分析失败: {e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
         # 显示分析结果
         if "analysis_results" in st.session_state:
@@ -1998,8 +3543,8 @@ def main():
             stock_codes_result = results["metadata"]["stock_codes"]
             selected_factors_result = results["metadata"]["factor_names"]
 
-            # Tab1: 行情预览
-            tab1, tab2, tab3, tab4 = st.tabs(["行情预览", "SHAP分析", "统计分析", "导出报告"])
+            # Tab1: 行情预览, Tab2: SHAP分析, Tab3: 统计分析, Tab4: 导出报告, Tab5: 增强分析
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["行情预览", "SHAP分析", "统计分析", "导出报告", "增强分析"])
 
             with tab1:
                 st.subheader("股票行情")
@@ -2062,10 +3607,40 @@ def main():
             with tab2:
                 st.subheader("SHAP分析")
 
-                # SHAP分析说明
-                with st.expander("📖 SHAP分析方法说明", expanded=False):
+                # 检查SHAP是否可用
+                try:
+                    import shap
+                    shap_available = True
+                except ImportError:
+                    shap_available = False
+
+                if not shap_available:
+                    st.error("❌ SHAP库未安装")
                     st.markdown("""
-                    ### SHAP (SHapley Additive exPlanations) 分析逻辑
+                    ### 安装SHAP库
+
+                    SHAP是一个用于解释机器学习模型的Python库。
+
+                    **安装方法**：
+
+                    1. 使用pip安装：
+                    ```bash
+                    pip install shap
+                    ```
+
+                    2. 使用conda安装：
+                    ```bash
+                    conda install -c conda-forge shap
+                    ```
+
+                    **安装后刷新页面即可使用SHAP分析功能**
+                    """)
+                    st.info("💡 SHAP分析可以解释每个因子对收益率预测的贡献度，帮助识别最重要的因子。")
+                else:
+                    # SHAP分析说明
+                    with st.expander("📖 SHAP分析方法说明", expanded=False):
+                        st.markdown("""
+                        ### SHAP (SHapley Additive exPlanations) 分析逻辑
 
                     **什么是SHAP？**
                     SHAP 是一种博弈论方法，用于解释机器学习模型的输出。它将预测结果分解为每个特征的贡献度。
@@ -2198,19 +3773,19 @@ def main():
                     - **策略构建**：结合IC/IR综合评估
                     """)
 
-                shap_data = results.get("shap", {})
+                    shap_data = results.get("shap", {})
 
-                if "error" in shap_data:
-                    st.warning(shap_data["error"])
-                else:
-                    # 特征重要性
-                    if "feature_importance" in shap_data:
-                        st.markdown("### 全局特征重要性")
-                        plot_shap_importance(shap_data["feature_importance"])
+                    if "error" in shap_data:
+                        st.warning(shap_data["error"])
+                    else:
+                        # 特征重要性
+                        if "feature_importance" in shap_data:
+                            st.markdown("### 全局特征重要性")
+                            plot_shap_importance(shap_data["feature_importance"])
 
-                    # 模型得分
-                    if "model_score" in shap_data:
-                        st.metric("XGBoost模型R²得分", f"{shap_data['model_score']:.4f}")
+                        # 模型得分
+                        if "model_score" in shap_data:
+                            st.metric("XGBoost模型R²得分", f"{shap_data['model_score']:.4f}")
 
             with tab3:
                 st.subheader("统计分析")
@@ -2467,9 +4042,1332 @@ def main():
                     output_path = analysis_service.export_report(results)
                     st.success(f"报告已保存到: {output_path}")
 
+            with tab5:
+                st.subheader("增强分析")
+                st.info("💡 IC显著性检验、因子分布分析、因子衰减分析")
+
+                from backend.services.enhanced_analysis_service import enhanced_analysis_service
+
+                # IC显著性检验
+                st.markdown("### IC显著性检验")
+
+                with st.expander("📖 IC显著性检验说明", expanded=False):
+                    st.markdown("""
+                    **什么是IC显著性检验？**
+
+                    IC显著性检验用于判断因子与收益率之间的相关性是否统计显著，而非偶然现象。
+
+                    **检验方法**：
+                    - **t检验**：检验IC均值是否显著不为0
+                    - **p值**：p < 0.05 表示显著
+
+                    **解释**：
+                    - p < 0.01：高度显著（***）
+                    - p < 0.05：显著（**）
+                    - p < 0.1：边际显著（*）
+                    """)
+
+                try:
+                    st.info(f"💡 数据结构信息：")
+                    st.caption(f"因子数据 keys: {list(results.keys())}")
+
+                    if "factor_data" in results:
+                        st.caption(f"因子数量: {len(list(results['factor_data'].keys()))}")
+                    if "ic_ir" in results:
+                        ic_ir = results["ic_ir"]
+                        st.caption(f"IC数据结构: {list(ic_ir.keys()) if ic_ir else 'None'}")
+                        if "ic_stats" in ic_ir:
+                            st.caption(f"IC统计中的因子: {list(ic_ir['ic_stats'].keys())}")
+
+                    # 执行IC显著性检验
+                    if "ic_ir" in results and results["ic_ir"] and "ic_stats" in results["ic_ir"]:
+                        ic_stats = results["ic_ir"]["ic_stats"]
+                        for factor_name in selected_factors_result:
+                            if factor_name in ic_stats:
+                                factor_stats = ic_stats[factor_name]
+
+                                # 从所有股票的DataFrame中收集因子和收益率数据
+                                all_factor_data = []
+                                for stock_code, stock_df in results.get("factor_data", {}).items():
+                                    if factor_name in stock_df.columns and "future_return_1" in stock_df.columns:
+                                        temp_df = stock_df[[factor_name, "future_return_1"]].copy()
+                                        temp_df = temp_df.dropna()
+                                        if len(temp_df) > 0:
+                                            all_factor_data.append(temp_df)
+
+                                if all_factor_data:
+                                    # 合并所有股票的数据
+                                    combined_df = pd.concat(all_factor_data)
+                                    factor_values = combined_df[factor_name]
+                                    return_values = combined_df["future_return_1"]
+
+                                    sig_result = enhanced_analysis_service.calculate_ic_significance(
+                                        factor_values=factor_values,
+                                        return_values=return_values
+                                    )
+
+                                    if "error" not in sig_result:
+                                        # 显示结果
+                                        col1, col2, col3, col4 = st.columns(4)
+
+                                        with col1:
+                                            st.metric(f"{factor_name} IC", f"{sig_result['ic']:.4f}")
+                                        with col2:
+                                            st.metric("t统计量", f"{sig_result['t_statistic']:.4f}")
+                                        with col3:
+                                            st.metric("p值", f"{sig_result['p_value']:.4f}")
+                                        with col4:
+                                            significance = (
+                                                "***" if sig_result['p_value'] < 0.01 else
+                                                "**" if sig_result['p_value'] < 0.05 else
+                                                "*" if sig_result['p_value'] < 0.1 else
+                                                ""
+                                            )
+                                            st.metric("显著性", significance)
+
+                                        # 显示IC均值（从ic_stats获取）
+                                        ic_mean = factor_stats.get("IC均值", 0)
+                                        st.caption(f"IC均值: {ic_mean:.4f}")
+
+                                    # IC分布直方图（使用IC序列）
+                                    ic_series_dict = factor_stats.get("IC序列", {})
+                                    if ic_series_dict:
+                                        ic_series = pd.Series(ic_series_dict)
+                                        ic_series.index = pd.to_datetime(ic_series.index)
+
+                                        st.markdown(f"**{factor_name} - IC分布**")
+                                        fig_ic_hist = go.Figure(data=[go.Histogram(
+                                            x=ic_series.dropna(),
+                                            nbinsx=30,
+                                            marker_color='skyblue'
+                                        )])
+                                        fig_ic_hist.update_layout(
+                                            title=f"{factor_name} IC值分布",
+                                            xaxis_title="IC值",
+                                            yaxis_title="频数",
+                                            height=300
+                                        )
+                                        st.plotly_chart(fig_ic_hist, use_container_width=True)
+
+                                        st.markdown("---")
+
+                except Exception as e:
+                    st.warning(f"⚠️ IC显著性检验失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+                # 因子分布分析
+                st.markdown("### 因子分布分析")
+
+                try:
+                    st.info(f"💡 调试信息：selected_factors_result = {selected_factors_result}")
+                    st.info(f"💡 调试信息：factor_data keys = {list(results.get('factor_data', {}).keys())}")
+
+                    # factor_data 结构是 {股票代码: DataFrame}
+                    # 每个DataFrame包含所有因子的列
+                    for factor_name in selected_factors_result:
+                        st.info(f"💡 处理因子：{factor_name}")
+
+                        # 从所有股票的DataFrame中收集该因子的值
+                        all_factor_values = []
+                        for stock_code, stock_df in results.get("factor_data", {}).items():
+                            if factor_name in stock_df.columns:
+                                factor_values = stock_df[factor_name].dropna()
+                                all_factor_values.append(factor_values)
+                                st.caption(f"股票 {stock_code}: {len(factor_values)} 个有效值")
+
+                        if all_factor_values:
+                            # 合并所有股票的因子值
+                            combined_factor_values = pd.concat(all_factor_values)
+                            st.info(f"💡 合并后的因子值数量: {len(combined_factor_values)}")
+
+                            # 分布统计
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("均值", f"{combined_factor_values.mean():.4f}")
+                            with col2:
+                                st.metric("标准差", f"{combined_factor_values.std():.4f}")
+                            with col3:
+                                st.metric("偏度", f"{combined_factor_values.skew():.4f}")
+                            with col4:
+                                st.metric("峰度", f"{combined_factor_values.kurtosis():.4f}")
+
+                            # 分布直方图
+                            fig_dist = go.Figure(data=[go.Histogram(
+                                x=combined_factor_values,
+                                nbinsx=50,
+                                marker_color='lightblue',
+                                name='因子值分布'
+                            )])
+                            fig_dist.update_layout(
+                                title=f"{factor_name} - 因子值分布",
+                                xaxis_title="因子值",
+                                yaxis_title="频数",
+                                height=400
+                            )
+                            st.plotly_chart(fig_dist, use_container_width=True)
+
+                            st.markdown("---")
+                        else:
+                            st.warning(f"⚠️ 因子 {factor_name} 在所有股票的数据中都未找到")
+
+                except Exception as e:
+                    st.warning(f"⚠️ 因子分布分析失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+                # 因子衰减分析
+                st.markdown("### 因子衰减分析")
+                st.info("💡 分析因子预测能力随时间衰减的情况")
+
+                try:
+                    for factor_name in selected_factors_result:
+                        # 从所有股票的DataFrame中收集因子和收益率数据
+                        all_factor_data = []
+
+                        for stock_code, stock_df in results.get("factor_data", {}).items():
+                            if factor_name in stock_df.columns and "future_return_1" in stock_df.columns:
+                                # 合并因子和收益率数据
+                                temp_df = stock_df[[factor_name, "future_return_1"]].copy()
+                                temp_df = temp_df.dropna()
+                                if len(temp_df) > 20:  # 确保有足够数据
+                                    all_factor_data.append(temp_df)
+
+                        if all_factor_data:
+                            # 合并所有股票的数据
+                            combined_df = pd.concat(all_factor_data)
+
+                            # 计算不同滞后的IC
+                            lags = [1, 2, 3, 5, 10, 20]
+                            ic_by_lag = []
+
+                            for lag in lags:
+                                # 计算滞后收益
+                                factor_df_aligned = combined_df.copy()
+                                factor_df_aligned["future_return"] = factor_df_aligned["future_return_1"].shift(-lag)
+
+                                # 计算IC
+                                aligned = factor_df_aligned[[factor_name, "future_return"]].dropna()
+                                if len(aligned) > 10:
+                                    ic = aligned[factor_name].corr(aligned["future_return"])
+                                    ic_by_lag.append({
+                                        "滞后天数": lag,
+                                        "IC": ic
+                                    })
+
+                            if ic_by_lag:
+                                decay_df = pd.DataFrame(ic_by_lag)
+
+                                # 衰减曲线
+                                fig_decay = go.Figure()
+                                fig_decay.add_trace(go.Scatter(
+                                    x=decay_df["滞后天数"],
+                                    y=decay_df["IC"],
+                                    mode='lines+markers',
+                                    name='IC衰减',
+                                    line=dict(color='red', width=2)
+                                ))
+                                fig_decay.update_layout(
+                                    title=f"{factor_name} - IC衰减分析",
+                                    xaxis_title="滞后天数",
+                                    yaxis_title="IC",
+                                    height=400
+                                )
+                                st.plotly_chart(fig_decay, use_container_width=True)
+
+                                # 衰减表格
+                                st.dataframe(
+                                    decay_df,
+                                    column_config={
+                                        "滞后天数": st.column_config.TextColumn("滞后天数"),
+                                        "IC": st.column_config.TextColumn("IC值")
+                                    },
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
+
+                                st.markdown("---")
+                            else:
+                                st.warning(f"⚠️ 因子 {factor_name} 数据不足，无法进行衰减分析")
+                        else:
+                            st.warning(f"⚠️ 因子 {factor_name} 在所有股票的数据中都未找到")
+
+                except Exception as e:
+                    st.warning(f"⚠️ 因子衰减分析失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+                # 因子稳定性检验
+                st.markdown("### 因子稳定性检验")
+                st.info("💡 分析因子在不同时间段和市场环境下的稳定性")
+
+                from backend.services.factor_stability_service import factor_stability_service
+
+                with st.expander("📖 因子稳定性检验说明", expanded=False):
+                    st.markdown("""
+                    **什么是因子稳定性检验？**
+
+                    因子稳定性检验用于评估因子在不同时间段和市场环境下的表现是否一致。
+
+                    **检验方法**：
+                    - **分布稳定性**：使用KS检验比较不同时间段的因子分布
+                    - **时间序列稳定性**：使用ADF检验判断IC序列是否平稳
+                    - **滚动窗口稳定性**：在不同窗口下计算IC统计
+                    - **市场环境表现**：分析因子在牛市、熊市、震荡市的表现
+
+                    **解释**：
+                    - 稳定性得分越高，因子在不同时期表现越一致
+                    - p值>0.05表示分布无显著差异，稳定性好
+                    """)
+
+                try:
+                    for factor_name in selected_factors_result:
+                        # 从所有股票的DataFrame中收集因子和收益率数据
+                        all_factor_data = []
+
+                        for stock_code, stock_df in results.get("factor_data", {}).items():
+                            if factor_name in stock_df.columns and "future_return_1" in stock_df.columns:
+                                temp_df = stock_df[[factor_name, "future_return_1"]].copy()
+                                temp_df = temp_df.dropna()
+                                if len(temp_df) > 20:  # 确保有足够数据
+                                    all_factor_data.append(temp_df)
+
+                        if all_factor_data:
+                            # 合并所有股票的数据
+                            combined_df = pd.concat(all_factor_data)
+                            combined_df = combined_df.sort_index()
+
+                            st.markdown(f"#### 📊 {factor_name} - 稳定性分析")
+
+                            # 1. 分布稳定性检验
+                            st.markdown("##### 分布稳定性（KS检验）")
+
+                            try:
+                                stability_result = factor_stability_service.calculate_distribution_stability(
+                                    factor_series=combined_df[factor_name],
+                                    window=min(252, len(combined_df) // 3),
+                                    method="ks"
+                                )
+
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("稳定性得分", f"{stability_result['stable_ratio']:.2%}")
+                                with col2:
+                                    st.metric("平均p值", f"{stability_result['avg_p_value']:.4f}")
+                                with col3:
+                                    st.metric("比较次数", stability_result['n_comparisons'])
+
+                                # 解释
+                                if stability_result['stable_ratio'] >= 0.8:
+                                    st.success("✅ 因子分布高度稳定，不同时间段分布一致")
+                                elif stability_result['stable_ratio'] >= 0.6:
+                                    st.info("ℹ️ 因子分布中等稳定")
+                                else:
+                                    st.warning("⚠️ 因子分布不稳定，可能存在结构性变化")
+
+                            except Exception as e:
+                                st.warning(f"⚠️ 分布稳定性检验失败: {str(e)}")
+
+                            # 2. 时间序列稳定性（ADF检验）
+                            st.markdown("##### IC序列平稳性（ADF检验）")
+
+                            try:
+                                if "ic_ir" in results and "ic_stats" in results["ic_ir"]:
+                                    ic_stats = results["ic_ir"]["ic_stats"]
+                                    if factor_name in ic_stats:
+                                        factor_stats = ic_stats[factor_name]
+                                        ic_series_dict = factor_stats.get("IC序列", {})
+
+                                        if ic_series_dict:
+                                            ic_series = pd.Series(ic_series_dict)
+                                            ic_series.index = pd.to_datetime(ic_series.index)
+
+                                            if len(ic_series) > 20:
+                                                adf_result = factor_stability_service.calculate_time_series_stability(
+                                                    ic_series=ic_series,
+                                                    maxlag=10
+                                                )
+
+                                                if "error" not in adf_result:
+                                                    col1, col2, col3, col4 = st.columns(4)
+                                                    with col1:
+                                                        is_stationary = adf_result['is_stationary']
+                                                        st.metric(
+                                                            "是否平稳",
+                                                            "是" if is_stationary else "否",
+                                                            help="平稳序列更稳定"
+                                                        )
+                                                    with col2:
+                                                        st.metric("ADF统计量", f"{adf_result['adf_statistic']:.4f}")
+                                                    with col3:
+                                                        st.metric("p值", f"{adf_result['p_value']:.4f}")
+                                                    with col4:
+                                                        st.metric("滞后阶数", adf_result['used_lag'])
+
+                                                    # 解释
+                                                    st.info(f"💡 {adf_result['interpretation']}")
+
+                                                    # 临界值对比
+                                                    with st.expander("查看临界值对比", expanded=False):
+                                                        st.markdown("""
+                                                        **ADF检验临界值**：
+                                                        - 1%: {:.4f}
+                                                        - 5%: {:.4f}
+                                                        - 10%: {:.4f}
+
+                                                        **判断规则**：
+                                                        - ADF统计量 < 临界值 → 拒绝原假设 → 序列平稳
+                                                        - p值 < 0.05 → 拒绝原假设 → 序列平稳
+                                                        """.format(
+                                                            adf_result['critical_values']['1%'],
+                                                            adf_result['critical_values']['5%'],
+                                                            adf_result['critical_values']['10%']
+                                                        ))
+
+                            except Exception as e:
+                                st.warning(f"⚠️ 平稳性检验失败: {str(e)}")
+
+                            # 3. 滚动窗口稳定性
+                            st.markdown("##### 滚动窗口IC稳定性")
+
+                            try:
+                                rolling_stability = factor_stability_service.calculate_rolling_stability(
+                                    factor_data=combined_df,
+                                    factor_name=factor_name,
+                                    return_col="return",
+                                    windows=[20, 60, 120]
+                                )
+
+                                if rolling_stability:
+                                    # 准备表格数据
+                                    window_data = []
+                                    for key, metrics in rolling_stability.items():
+                                        window_data.append({
+                                            "窗口": metrics['window'],
+                                            "平均IC": f"{metrics['mean_ic']:.4f}",
+                                            "IC标准差": f"{metrics['std_ic']:.4f}",
+                                            "IR": f"{metrics['ir']:.4f}" if not pd.isna(metrics['ir']) else "N/A",
+                                            "变异系数": f"{metrics['cv']:.4f}" if not pd.isna(metrics['cv']) else "N/A"
+                                        })
+
+                                    st.dataframe(
+                                        pd.DataFrame(window_data),
+                                        column_config={
+                                            "窗口": st.column_config.TextColumn("窗口（天）"),
+                                            "平均IC": st.column_config.TextColumn("平均IC"),
+                                            "IC标准差": st.column_config.TextColumn("IC标准差"),
+                                            "IR": st.column_config.TextColumn("信息比率"),
+                                            "变异系数": st.column_config.TextColumn("变异系数")
+                                        },
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+
+                            except Exception as e:
+                                st.warning(f"⚠️ 滚动窗口分析失败: {str(e)}")
+
+                            # 4. 变异系数分析
+                            st.markdown("##### IC变异系数")
+
+                            try:
+                                if "ic_ir" in results and "ic_stats" in results["ic_ir"]:
+                                    ic_stats = results["ic_ir"]["ic_stats"]
+                                    if factor_name in ic_stats:
+                                        factor_stats = ic_stats[factor_name]
+                                        ic_series_dict = factor_stats.get("IC序列", {})
+
+                                        if ic_series_dict:
+                                            ic_series = pd.Series(ic_series_dict)
+                                            ic_series.index = pd.to_datetime(ic_series.index)
+
+                                            cv_result = factor_stability_service.calculate_coefficient_of_variation(
+                                                ic_series=ic_series
+                                            )
+
+                                            if "error" not in cv_result:
+                                                col1, col2, col3 = st.columns(3)
+                                                with col1:
+                                                    st.metric("IC均值", f"{cv_result['mean']:.4f}")
+                                                with col2:
+                                                    st.metric("IC标准差", f"{cv_result['std']:.4f}")
+                                                with col3:
+                                                    st.metric("变异系数", f"{cv_result['cv']:.4f}")
+
+                                                st.info(f"💡 {cv_result['interpretation']}")
+
+                            except Exception as e:
+                                st.warning(f"⚠️ 变异系数计算失败: {str(e)}")
+
+                            st.markdown("---")
+                        else:
+                            st.warning(f"⚠️ 因子 {factor_name} 在所有股票的数据中都未找到")
+
+                except Exception as e:
+                    st.warning(f"⚠️ 因子稳定性检验失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+                # 因子多周期分析
+                st.markdown("### 因子多周期分析")
+                st.info("💡 分析因子在不同时间周期（日、周、月）下的表现差异")
+
+                with st.expander("📖 多周期分析说明", expanded=False):
+                    st.markdown("""
+                    **什么是因子多周期分析？**
+
+                    多周期分析用于评估因子在不同时间尺度下的预测能力和稳定性。
+
+                    **分析维度**：
+                    - **日周期**：原始日度数据的IC表现
+                    - **周周期**：每周最后一个交易日的IC表现
+                    - **月周期**：每月最后一个交易日的IC表现
+                    - **季度周期**：每季最后一个交易日的IC表现
+
+                    **应用场景**：
+                    - 判断因子适合短期还是长期持有
+                    - 识别因子的最佳调仓频率
+                    - 评估因子在不同周期下的衰减速度
+                    """)
+
+                try:
+                    for factor_name in selected_factors_result:
+                        # 从所有股票的DataFrame中收集因子和收益率数据
+                        all_factor_data = []
+
+                        for stock_code, stock_df in results.get("factor_data", {}).items():
+                            if factor_name in stock_df.columns and "future_return_1" in stock_df.columns:
+                                temp_df = stock_df[[factor_name, "future_return_1"]].copy()
+                                temp_df = temp_df.dropna()
+                                if len(temp_df) > 20:  # 确保有足够数据
+                                    all_factor_data.append(temp_df)
+
+                        if all_factor_data:
+                            # 合并所有股票的数据
+                            combined_df = pd.concat(all_factor_data)
+                            combined_df = combined_df.sort_index()
+
+                            # 确保数据有日期索引
+                            if not isinstance(combined_df.index, pd.DatetimeIndex):
+                                try:
+                                    combined_df.index = pd.to_datetime(combined_df.index)
+                                except:
+                                    st.warning(f"⚠️ {factor_name} 数据索引不是日期格式，无法进行多周期分析")
+                                    continue
+
+                            st.markdown(f"#### 📊 {factor_name} - 多周期分析")
+
+                            # 计算不同周期的IC
+                            periods_data = {}
+
+                            # 1. 日周期（原始数据）
+                            daily_ic = []
+                            for i in range(len(combined_df) - 1):
+                                if pd.notna(combined_df[factor_name].iloc[i]) and pd.notna(combined_df['future_return_1'].iloc[i]):
+                                    # 使用当前因子值和下一期收益
+                                    if i + 1 < len(combined_df):
+                                        factor_val = combined_df[factor_name].iloc[i]
+                                        return_val = combined_df['future_return_1'].iloc[i]
+                                        if pd.notna(factor_val) and pd.notna(return_val):
+                                            daily_ic.append((combined_df.index[i], factor_val, return_val))
+
+                            if daily_ic:
+                                daily_df = pd.DataFrame(daily_ic, columns=['date', 'factor', 'return'])
+                                daily_ic_corr = daily_df['factor'].corr(daily_df['return'])
+                                periods_data['日频'] = {
+                                    'period': '日频',
+                                    'n_obs': len(daily_df),
+                                    'ic': float(daily_ic_corr) if not pd.isna(daily_ic_corr) else 0,
+                                    'abs_ic': float(abs(daily_ic_corr)) if not pd.isna(daily_ic_corr) else 0
+                                }
+
+                            # 2. 周周期
+                            weekly_data = combined_df.resample('W').last()
+                            if len(weekly_data) > 10:
+                                weekly_ic_series = []
+                                for i in range(len(weekly_data) - 1):
+                                    if pd.notna(weekly_data[factor_name].iloc[i]) and pd.notna(weekly_data['future_return_1'].iloc[i]):
+                                        factor_val = weekly_data[factor_name].iloc[i]
+                                        return_val = weekly_data['future_return_1'].iloc[i]
+                                        if pd.notna(factor_val) and pd.notna(return_val):
+                                            weekly_ic_series.append((factor_val, return_val))
+
+                                if weekly_ic_series:
+                                    weekly_df = pd.DataFrame(weekly_ic_series, columns=['factor', 'return'])
+                                    weekly_ic_corr = weekly_df['factor'].corr(weekly_df['return'])
+                                    periods_data['周频'] = {
+                                        'period': '周频',
+                                        'n_obs': len(weekly_df),
+                                        'ic': float(weekly_ic_corr) if not pd.isna(weekly_ic_corr) else 0,
+                                        'abs_ic': float(abs(weekly_ic_corr)) if not pd.isna(weekly_ic_corr) else 0
+                                    }
+
+                            # 3. 月周期
+                            monthly_data = combined_df.resample('M').last()
+                            if len(monthly_data) > 6:
+                                monthly_ic_series = []
+                                for i in range(len(monthly_data) - 1):
+                                    if pd.notna(monthly_data[factor_name].iloc[i]) and pd.notna(monthly_data['future_return_1'].iloc[i]):
+                                        factor_val = monthly_data[factor_name].iloc[i]
+                                        return_val = monthly_data['return'].iloc[i]
+                                        if pd.notna(factor_val) and pd.notna(return_val):
+                                            monthly_ic_series.append((factor_val, return_val))
+
+                                if monthly_ic_series:
+                                    monthly_df = pd.DataFrame(monthly_ic_series, columns=['factor', 'return'])
+                                    monthly_ic_corr = monthly_df['factor'].corr(monthly_df['return'])
+                                    periods_data['月频'] = {
+                                        'period': '月频',
+                                        'n_obs': len(monthly_df),
+                                        'ic': float(monthly_ic_corr) if not pd.isna(monthly_ic_corr) else 0,
+                                        'abs_ic': float(abs(monthly_ic_corr)) if not pd.isna(monthly_ic_corr) else 0
+                                    }
+
+                            # 4. 季度周期
+                            quarterly_data = combined_df.resample('Q').last()
+                            if len(quarterly_data) > 4:
+                                quarterly_ic_series = []
+                                for i in range(len(quarterly_data) - 1):
+                                    if pd.notna(quarterly_data[factor_name].iloc[i]) and pd.notna(quarterly_data['return'].iloc[i]):
+                                        factor_val = quarterly_data[factor_name].iloc[i]
+                                        return_val = quarterly_data['return'].iloc[i]
+                                        if pd.notna(factor_val) and pd.notna(return_val):
+                                            quarterly_ic_series.append((factor_val, return_val))
+
+                                if quarterly_ic_series:
+                                    quarterly_df = pd.DataFrame(quarterly_ic_series, columns=['factor', 'return'])
+                                    quarterly_ic_corr = quarterly_df['factor'].corr(quarterly_df['return'])
+                                    periods_data['季频'] = {
+                                        'period': '季频',
+                                        'n_obs': len(quarterly_df),
+                                        'ic': float(quarterly_ic_corr) if not pd.isna(quarterly_ic_corr) else 0,
+                                        'abs_ic': float(abs(quarterly_ic_corr)) if not pd.isna(quarterly_ic_corr) else 0
+                                    }
+
+                            # 显示结果
+                            if periods_data:
+                                # 定义评级函数
+                                def get_period_rating(abs_ic):
+                                    if abs_ic >= 0.05:
+                                        return "优秀"
+                                    elif abs_ic >= 0.03:
+                                        return "良好"
+                                    elif abs_ic >= 0.01:
+                                        return "一般"
+                                    else:
+                                        return "较差"
+
+                                # 创建对比表格
+                                periods_df = pd.DataFrame([
+                                    {
+                                        "周期": data['period'],
+                                        "观测数": data['n_obs'],
+                                        "IC": f"{data['ic']:.4f}",
+                                        "|IC|": f"{data['abs_ic']:.4f}",
+                                        "评级": get_period_rating(data['abs_ic'])
+                                    }
+                                    for data in periods_data.values()
+                                ])
+
+                                st.dataframe(
+                                    periods_df,
+                                    column_config={
+                                        "周期": st.column_config.TextColumn("周期"),
+                                        "观测数": st.column_config.NumberColumn("观测数"),
+                                        "IC": st.column_config.TextColumn("IC值"),
+                                        "|IC|": st.column_config.TextColumn("|IC|"),
+                                        "评级": st.column_config.TextColumn("评级")
+                                    },
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
+
+                                # IC对比柱状图
+                                fig_period = go.Figure()
+                                periods_list = list(periods_data.keys())
+                                ic_values = [periods_data[p]['ic'] for p in periods_list]
+
+                                colors = ['green' if ic > 0 else 'red' for ic in ic_values]
+
+                                fig_period.add_trace(go.Bar(
+                                    x=periods_list,
+                                    y=ic_values,
+                                    marker_color=colors,
+                                    text=[f"{ic:.4f}" for ic in ic_values],
+                                    textposition='outside'
+                                ))
+
+                                fig_period.update_layout(
+                                    title=f"{factor_name} - 不同周期IC对比",
+                                    xaxis_title="周期",
+                                    yaxis_title="IC值",
+                                    height=400,
+                                )
+
+                                st.plotly_chart(fig_period, use_container_width=True)
+
+                                # 推荐调仓周期
+                                best_period = max(periods_data.items(), key=lambda x: x[1]['abs_ic'])
+                                st.info(f"💡 **推荐调仓周期**: {best_period[1]['period']}（|IC| = {best_period[1]['abs_ic']:.4f}）")
+
+                                st.markdown("---")
+                            else:
+                                st.warning(f"⚠️ 因子 {factor_name} 数据不足，无法进行多周期分析")
+                        else:
+                            st.warning(f"⚠️ 因子 {factor_name} 在所有股票的数据中都未找到")
+
+                except Exception as e:
+                    st.warning(f"⚠️ 因子多周期分析失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+
+    # 因子挖掘页面
+    elif page == "因子挖掘":
+        genetic_mining_main()
+
+    # 组合分析页面
+    elif page == "组合分析":
+        portfolio_analysis_main()
+
     # 策略回测页面
     elif page == "策略回测":
         backtest_main()
+
+
+def backtest_comparison():
+    """多策略对比"""
+    st.markdown("### 多策略对比回测")
+    st.info("💡 同时对比多个策略的表现，找出最优策略")
+
+    # 侧边栏配置
+    with st.sidebar:
+        st.subheader("策略对比配置")
+
+        # 数据配置
+        data_mode = st.radio("数据模式", ["单股票", "股票池"], key="comp_data_mode")
+
+        if data_mode == "单股票":
+            stock_codes_input = st.text_input("股票代码", value="000001", key="comp_stock_input")
+            stock_codes = [stock_codes_input.strip()]
+        else:
+            stock_codes_input = st.text_area("股票代码（每行一个）", value="000001\n600000", height=100, key="comp_stock_area")
+            stock_codes = [code.strip() for code in stock_codes_input.strip().split("\n") if code.strip()]
+
+        # 时间范围
+        default_end = datetime.now()
+        default_start = default_end - timedelta(days=365)
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("开始日期", value=default_start, key="comp_start_date")
+        with col2:
+            end_date = st.date_input("结束日期", value=default_end, key="comp_end_date")
+
+        # 选择要对比的策略
+        st.markdown("### 选择策略（至少2个）")
+
+        # 获取可用因子
+        all_factors = factor_service.get_all_factors()
+        factor_options = {f["name"]: f["description"] for f in all_factors}
+
+        # 策略配置列表
+        if "strategy_configs" not in st.session_state:
+            st.session_state.strategy_configs = []
+
+        # 添加策略按钮
+        if st.button("➕ 添加策略", use_container_width=True, key="add_strategy"):
+            st.session_state.strategy_configs.append({
+                "name": f"策略{len(st.session_state.strategy_configs) + 1}",
+                "factor": None,
+                "top_pct": 20,
+                "direction": "long"
+            })
+
+        # 显示已配置的策略
+        st.markdown("**已配置的策略**:")
+        for i, config in enumerate(st.session_state.strategy_configs):
+            with st.expander(f"策略 {i+1}", expanded=True):
+                config["name"] = st.text_input(
+                    "策略名称",
+                    value=config["name"],
+                    key=f"strategy_name_{i}"
+                )
+
+                config["factor"] = st.selectbox(
+                    "选择因子",
+                    options=list(factor_options.keys()),
+                    index=list(factor_options.keys()).index(config["factor"]) if config["factor"] in factor_options else 0,
+                    format_func=lambda x: f"{x}",
+                    key=f"strategy_factor_{i}"
+                )
+
+                config["top_pct"] = st.slider(
+                    "选择前N%",
+                    min_value=5,
+                    max_value=50,
+                    value=config["top_pct"],
+                    key=f"strategy_top_{i}"
+                )
+
+                config["direction"] = st.selectbox(
+                    "交易方向",
+                    ["long", "short"],
+                    index=0 if config["direction"] == "long" else 1,
+                    key=f"strategy_direction_{i}"
+                )
+
+            col_del, col_spacer = st.columns([1, 4])
+            with col_del:
+                if st.button("🗑️", key=f"delete_strategy_{i}"):
+                    st.session_state.strategy_configs.pop(i)
+                    st.rerun()
+
+        # 回测参数
+        st.markdown("### 回测参数")
+        initial_capital = st.number_input("初始资金", value=1000000, min_value=10000, step=10000, key="comp_initial")
+        commission_rate = st.number_input("费率(%)", value=0.03, min_value=0.0, max_value=1.0, step=0.01, key="comp_comm") / 100
+        rebalance_freq = st.selectbox("调仓频率", ["日频", "周频", "月频"], index=2, key="comp_rebalance")
+
+        # 运行对比按钮
+        run_comparison = st.button("🚀 运行策略对比", type="primary", use_container_width=True, key="run_comparison")
+
+        # 清空配置按钮
+        if st.button("清空所有策略", type="secondary", key="clear_strategies"):
+            st.session_state.strategy_configs = []
+            st.rerun()
+
+    # 主内容区
+    if len(st.session_state.strategy_configs) < 2:
+        st.warning("⚠️ 请至少配置2个策略进行对比")
+        st.info("👈 在左侧添加策略并配置参数")
+        return
+
+    if not run_comparison:
+        st.info("👈 配置完成后点击「运行策略对比」按钮")
+        return
+
+    # 验证配置
+    valid_configs = [c for c in st.session_state.strategy_configs if c.get("factor")]
+    if len(valid_configs) < 2:
+        st.error("❌ 至少需要2个有效配置的策略（每个策略必须选择因子）")
+        return
+
+    # 执行策略对比
+    try:
+        with st.spinner("正在执行策略对比，请稍候..."):
+            # 获取数据
+            all_data = {}
+            for stock_code in stock_codes:
+                data = data_service.get_stock_data(
+                    stock_code,
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d")
+                )
+                if not data.empty:
+                    all_data[stock_code] = data
+
+            if not all_data:
+                st.error("❌ 未获取到任何数据")
+                return
+
+            # 合并所有股票数据
+            merged_data = pd.concat(all_data.values(), names=["stock_code"]).reset_index()
+            merged_data = merged_data.sort_values(["date", "stock_code"])
+
+            # 计算所有策略的收益
+            results = {}
+            for config in valid_configs:
+                strategy_name = config["name"]
+
+                # 计算因子值
+                factor_result = factor_service.calculate_factor(
+                    factor_name=config["factor"],
+                    data=merged_data
+                )
+
+                if factor_result and "factor_values" in factor_result:
+                    factor_df = factor_result["factor_values"]
+
+                    # 按日期分组，选择top N股票
+                    selected_returns = []
+                    for date, group in factor_df.groupby("date"):
+                        if config["direction"] == "long":
+                            top_stocks = group.nlargest(int(len(group) * config["top_pct"] / 100), "factor_value")
+                        else:
+                            top_stocks = group.nsmallest(int(len(group) * config["top_pct"] / 100), "factor_value")
+
+                        # 计算下期收益
+                        next_returns = merged_data[
+                            (merged_data["date"] > date) &
+                            (merged_data["stock_code"].isin(top_stocks["stock_code"]))
+                        ].groupby("stock_code")["return"].first()
+
+                        if len(next_returns) > 0:
+                            selected_returns.append(next_returns.mean())
+
+                    # 构建策略收益序列
+                    if selected_returns:
+                        returns_series = pd.Series(selected_returns)
+                        results[strategy_name] = {
+                            "returns": returns_series,
+                            "total_return": (1 + returns_series).prod() - 1,
+                            "annual_return": (1 + returns_series).mean() * 252,
+                            "volatility": returns_series.std() * np.sqrt(252),
+                        }
+
+                        # 计算夏普比率
+                        if results[strategy_name]["volatility"] > 0:
+                            results[strategy_name]["sharpe_ratio"] = results[strategy_name]["annual_return"] / results[strategy_name]["volatility"]
+                        else:
+                            results[strategy_name]["sharpe_ratio"] = 0
+
+        st.success("✅ 策略对比完成！")
+
+        # 显示对比结果
+        st.markdown("---")
+        st.subheader("📊 策略对比结果")
+
+        # 1. 指标对比表
+        st.markdown("### 指标对比")
+
+        metrics_data = []
+        for name, result in results.items():
+            metrics_data.append({
+                "策略名称": name,
+                "累计收益率": f"{result['total_return']:.2%}",
+                "年化收益率": f"{result['annual_return']:.2%}",
+                "年化波动率": f"{result['volatility']:.2%}",
+                "夏普比率": f"{result['sharpe_ratio']:.4f}",
+            })
+
+        st.dataframe(
+            pd.DataFrame(metrics_data),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # 2. 收益率排名
+        st.markdown("### 收益率排名")
+        sorted_results = sorted(results.items(), key=lambda x: x[1]["total_return"], reverse=True)
+        for i, (name, result) in enumerate(sorted_results, 1):
+            st.metric(f"#{i} {name}", f"{result['total_return']:.2%}")
+
+        # 3. 可视化对比
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### 年化收益率对比")
+            yield_data = {name: result["annual_return"] * 100 for name, result in results.items()}
+            fig_yield = go.Figure(data=[
+                go.Bar(
+                    x=list(yield_data.keys()),
+                    y=list(yield_data.values()),
+                    marker_color=['green' if v > 0 else 'red' for v in yield_data.values()]
+                )
+            ])
+            fig_yield.update_layout(
+                xaxis_title="策略",
+                yaxis_title="年化收益率(%)",
+                height=400
+            )
+            st.plotly_chart(fig_yield, use_container_width=True)
+
+        with col2:
+            st.markdown("### 夏普比率对比")
+            sharpe_data = {name: result["sharpe_ratio"] for name, result in results.items()}
+            fig_sharpe = go.Figure(data=[
+                go.Bar(
+                    x=list(sharpe_data.keys()),
+                    y=list(sharpe_data.values()),
+                    marker_color=['blue' if v > 1 else 'orange' for v in sharpe_data.values()]
+                )
+            ])
+            fig_sharpe.update_layout(
+                xaxis_title="策略",
+                yaxis_title="夏普比率",
+                height=400
+            )
+            st.plotly_chart(fig_sharpe, use_container_width=True)
+
+        # 4. 风险收益散点图
+        st.markdown("### 风险-收益分布")
+        scatter_data = []
+        for name, result in results.items():
+            scatter_data.append({
+                "x": result["volatility"] * 100,
+                "y": result["annual_return"] * 100,
+                "name": name,
+                "sharpe": result["sharpe_ratio"]
+            })
+
+        fig_scatter = go.Figure()
+
+        for item in scatter_data:
+            fig_scatter.add_trace(go.Scatter(
+                x=[item["x"]],
+                y=[item["y"]],
+                mode='markers+text',
+                name=item["name"],
+                text=[item["name"]],
+                textposition='top center',
+                marker=dict(
+                    size=20,
+                    color=item["sharpe"],
+                    colorscale='RdYlGn',
+                    colorbar=dict(title="夏普比率"),
+                    showscale=True
+                ),
+            ))
+
+        fig_scatter.update_layout(
+            xaxis_title="年化波动率(%)",
+            yaxis_title="年化收益率(%)",
+            height=500,
+            hovermode='closest'
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"❌ 策略对比失败: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+
+
+def portfolio_analysis_main():
+    """组合分析主页面"""
+    st.title("📊 组合分析")
+    st.info("💡 多因子组合分析与投资组合构建")
+
+    # 侧边栏配置
+    with st.sidebar:
+        st.subheader("组合配置")
+
+        # 选择因子
+        all_factors = factor_service.get_all_factors()
+        factor_options = {f["name"]: f["description"] for f in all_factors}
+        selected_factors = st.multiselect(
+            "选择因子（多因子组合）",
+            options=list(factor_options.keys()),
+            format_func=lambda x: f"{x} - {factor_options.get(x, '')}",
+            default=[],
+            key="portfolio_factors"
+        )
+
+        # 股票池
+        stock_codes_input = st.text_area(
+            "股票池（每行一个）",
+            value="000001\n600000\n000002",
+            height=100,
+            key="portfolio_stocks"
+        )
+        stock_codes = [code.strip() for code in stock_codes_input.strip().split("\n") if code.strip()]
+
+        # 时间范围
+        default_end = datetime.now()
+        default_start = default_end - timedelta(days=365)
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("开始日期", value=default_start, key="portfolio_start")
+        with col2:
+            end_date = st.date_input("结束日期", value=default_end, key="portfolio_end")
+
+        # 组合参数
+        st.markdown("### 组合参数")
+        rebalance_freq = st.selectbox(
+            "调仓频率",
+            ["日频", "周频", "月频"],
+            index=2,
+            key="portfolio_rebalance"
+        )
+
+        top_pct = st.slider("选择前N%股票", 5, 50, 20, key="portfolio_top_pct")
+        weight_method = st.selectbox(
+            "权重分配",
+            ["等权重", "IC加权", "风险平价", "最大夏普", "最小方差"],
+            index=0,
+            key="portfolio_weight",
+            help="""权重优化方法：
+- 等权重：所有因子权重相同
+- IC加权：基于因子历史IC/IR加权
+- 风险平价：风险均衡分配
+- 最大夏普：最大化夏普比率
+- 最小方差：最小化组合波动率"""
+        )
+
+        # 运行分析按钮
+        run_analysis = st.button("🚀 运行组合分析", type="primary", use_container_width=True, key="run_portfolio")
+
+    # 主内容区
+    if run_analysis:
+        if not selected_factors:
+            st.error("❌ 请至少选择一个因子")
+        elif not stock_codes:
+            st.error("❌ 请输入股票代码")
+        else:
+            with st.spinner("正在执行组合分析，请稍候..."):
+                try:
+                    from backend.services.portfolio_analysis_service import portfolio_analysis_service
+
+                    # 获取数据
+                    all_data = {}
+                    factor_returns_list = []  # 用于权重优化的因子收益率
+
+                    for stock_code in stock_codes:
+                        data = data_service.get_stock_data(
+                            stock_code,
+                            start_date.strftime("%Y-%m-%d"),
+                            end_date.strftime("%Y-%m-%d")
+                        )
+                        if not data.empty:
+                            all_data[stock_code] = data
+                            # 计算收益率用于权重优化
+                            if "close" in data.columns:
+                                returns = data["close"].pct_change().dropna()
+                                factor_returns_list.append(returns)
+
+                    if not all_data:
+                        st.error("❌ 未获取到任何数据")
+                        return
+
+                    # 合并数据
+                    merged_data = pd.concat(all_data.values(), names=["stock_code"]).reset_index()
+                    merged_data = merged_data.sort_values(["date", "stock_code"])
+
+                    # 计算每个因子的值和收益率
+                    factor_scores = pd.DataFrame()
+                    factor_scores["date"] = merged_data["date"].unique()
+                    factor_scores.set_index("date", inplace=True)
+
+                    # 用于权重优化的因子收益率DataFrame
+                    factor_returns_df = pd.DataFrame()
+
+                    for factor_name in selected_factors:
+                        try:
+                            factor_result = factor_service.calculate_factor(
+                                factor_name=factor_name,
+                                data=merged_data
+                            )
+
+                            if factor_result and "factor_values" in factor_result:
+                                factor_df = factor_result["factor_values"]
+                                # 按日期聚合因子得分
+                                daily_scores = factor_df.groupby("date")["factor_value"].mean()
+                                factor_scores[factor_name] = daily_scores
+
+                                # 计算因子收益率（用于权重优化）
+                                factor_return = daily_scores.pct_change().dropna()
+                                if len(factor_return) > 0:
+                                    factor_returns_df[factor_name] = factor_return
+
+                        except Exception as e:
+                            st.warning(f"⚠️ 因子 {factor_name} 计算失败: {str(e)}")
+
+                    # 权重优化
+                    factor_scores = factor_scores.dropna()
+                    optimization_result = None
+                    weights_dict = None
+
+                    if len(factor_scores) > 0 and len(factor_returns_df) > 1:
+                        # 映射前端选项到后端方法名
+                        method_map = {
+                            "等权重": "equal_weight",
+                            "IC加权": "ic_weight",
+                            "风险平价": "risk_parity",
+                            "最大夏普": "max_sharpe",
+                            "最小方差": "min_variance"
+                        }
+                        backend_method = method_map.get(weight_method, "equal_weight")
+
+                        # 执行权重优化
+                        optimization_result = portfolio_analysis_service.optimize_weights(
+                            factor_returns=factor_returns_df,
+                            method=backend_method
+                        )
+
+                        if "error" not in optimization_result:
+                            weights_dict = optimization_result["weights"]
+                            st.success(f"✅ 权重优化完成（{weight_method}）")
+
+                    # 如果优化失败，使用等权重
+                    if weights_dict is None:
+                        weights_dict = {factor: 1.0 / len(selected_factors) for factor in selected_factors}
+                        st.warning("⚠️ 使用等权重（权重优化不可用）")
+
+                    # 计算综合得分
+                    if len(factor_scores) > 0:
+                        # 标准化每个因子
+                        factor_scores_normalized = (factor_scores - factor_scores.mean()) / (factor_scores.std() + 1e-8)
+
+                        # 使用优化后的权重计算综合得分
+                        composite_score = portfolio_analysis_service.calculate_combined_factor_score(
+                            factor_data={name: factor_scores[name] for name in selected_factors},
+                            weights=weights_dict,
+                            normalize=True
+                        )
+
+                        st.success("✅ 组合分析完成！")
+
+                        # 显示权重分配
+                        st.markdown("---")
+                        st.subheader("⚖️ 权重分配")
+
+                        weight_df = pd.DataFrame({
+                            "因子": list(weights_dict.keys()),
+                            "权重": list(weights_dict.values())
+                        }).sort_values("权重", ascending=False)
+
+                        col1, col2 = st.columns([1, 1])
+                        with col1:
+                            st.dataframe(
+                                weight_df,
+                                column_config={
+                                    "因子": st.column_config.TextColumn("因子"),
+                                    "权重": st.column_config.NumberColumn("权重", format="%.2%")
+                                },
+                                hide_index=True,
+                                use_container_width=True
+                            )
+
+                        with col2:
+                            fig_weight = go.Figure(data=[
+                                go.Pie(
+                                    labels=weight_df["因子"],
+                                    values=weight_df["权重"],
+                                    textinfo='percent+label'
+                                )
+                            ])
+                            fig_weight.update_layout(
+                                title="因子权重分配",
+                                height=300
+                            )
+                            st.plotly_chart(fig_weight, use_container_width=True)
+
+                        # 显示综合得分走势
+                        st.markdown("---")
+                        st.subheader("📈 综合得分走势")
+
+                        fig_score = go.Figure()
+                        fig_score.add_trace(go.Scatter(
+                            x=composite_score.index,
+                            y=composite_score.values,
+                            mode='lines',
+                            name='综合得分',
+                            line=dict(color='blue', width=2)
+                        ))
+                        fig_score.update_layout(
+                            title=f"多因子综合得分走势（{weight_method}）",
+                            xaxis_title="日期",
+                            yaxis_title="得分",
+                            height=400
+                        )
+                        st.plotly_chart(fig_score, use_container_width=True)
+
+                        # 因子贡献度分析
+                        st.markdown("---")
+                        st.subheader("📊 因子贡献度")
+
+                        # 计算每个因子的加权贡献
+                        weighted_contribution = pd.Series({
+                            factor: factor_scores_normalized[factor].mean() * weight
+                            for factor, weight in weights_dict.items()
+                        })
+                        contribution_df = pd.DataFrame({
+                            "因子": weighted_contribution.index,
+                            "贡献度": weighted_contribution.values
+                        }).sort_values("贡献度", ascending=False)
+
+                        fig_contrib = go.Figure(data=[
+                            go.Bar(
+                                x=contribution_df["因子"],
+                                y=contribution_df["贡献度"],
+                                marker_color=['green' if v > 0 else 'red' for v in contribution_df["贡献度"]]
+                            )
+                        ])
+                        fig_contrib.update_layout(
+                            title="因子贡献度（加权）",
+                            xaxis_title="因子",
+                            yaxis_title="加权平均贡献",
+                            height=400
+                        )
+                        st.plotly_chart(fig_contrib, use_container_width=True)
+
+                        # 因子相关性热力图
+                        st.markdown("---")
+                        st.subheader("🔥 因子相关性")
+
+                        correlation_matrix = factor_scores_normalized.corr()
+
+                        fig_heatmap = go.Figure(data=go.Heatmap(
+                            z=correlation_matrix.values,
+                            x=correlation_matrix.columns,
+                            y=correlation_matrix.index,
+                            colorscale='RdBu',
+                            zmid=0
+                        ))
+                        fig_heatmap.update_layout(
+                            title="因子相关性矩阵",
+                            height=500
+                        )
+                        st.plotly_chart(fig_heatmap, use_container_width=True)
+
+                        # 权重方法对比（如果有优化结果）
+                        if optimization_result is not None:
+                            st.markdown("---")
+                            st.subheader("📊 权重方法对比")
+
+                            # 比较所有方法
+                            comparison_df = portfolio_analysis_service.compare_weight_methods(
+                                factor_returns=factor_returns_df,
+                                methods=["equal_weight", "ic_weight", "risk_parity", "max_sharpe", "min_variance"]
+                            )
+
+                            if not comparison_df.empty:
+                                st.dataframe(
+                                    comparison_df,
+                                    column_config={
+                                        "方法": st.column_config.TextColumn("方法"),
+                                        "预期收益": st.column_config.NumberColumn("预期收益", format="%.6f"),
+                                        "预期波动率": st.column_config.NumberColumn("预期波动率", format="%.6f"),
+                                        "收益波动比": st.column_config.NumberColumn("收益波动比", format="%.4f"),
+                                    },
+                                    use_container_width=True
+                                )
+
+                        # 统计摘要
+                        st.markdown("---")
+                        st.subheader("📋 统计摘要")
+
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("因子数量", len(selected_factors))
+                        with col2:
+                            st.metric("数据天数", len(composite_score))
+                        with col3:
+                            st.metric("平均得分", f"{composite_score.mean():.4f}")
+                        with col4:
+                            st.metric("得分标准差", f"{composite_score.std():.4f}")
+
+                        # 优化结果摘要（如果有）
+                        if optimization_result is not None and "expected_return" in optimization_result:
+                            st.markdown("---")
+                            st.subheader("🎯 优化指标")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("预期收益", f"{optimization_result['expected_return']:.6f}")
+                            with col2:
+                                st.metric("预期波动率", f"{optimization_result['expected_volatility']:.6f}")
+                            with col3:
+                                if optimization_result['expected_volatility'] > 0:
+                                    sharpe = optimization_result['expected_return'] / optimization_result['expected_volatility']
+                                    st.metric("预期夏普比率", f"{sharpe:.4f}")
+
+                    else:
+                        st.warning("⚠️ 没有有效的因子数据")
+
+                except Exception as e:
+                    st.error(f"❌ 分析失败: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+    else:
+        st.info("👈 配置完成后点击「运行组合分析」按钮")
 
 
 if __name__ == "__main__":

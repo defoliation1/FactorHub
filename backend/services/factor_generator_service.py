@@ -12,15 +12,17 @@ class FactorGeneratorService:
     """因子生成器服务"""
 
     def __init__(self):
-        # 可用的运算符
+        # 可用的运算符（扩展）
         self.operators = {
             "+": "加法",
             "-": "减法",
             "*": "乘法",
             "/": "除法",
+            "**": "幂运算",
+            "%": "取模",
         }
 
-        # 可用的统计函数
+        # 可用的统计函数（扩展）
         self.statistics = {
             "rank": "排名",
             "zscore": "Z-score标准化",
@@ -28,14 +30,30 @@ class FactorGeneratorService:
             "std": "标准差",
             "max": "最大值",
             "min": "最小值",
+            "median": "中位数",
+            "skew": "偏度",
+            "kurtosis": "峰度",
+            "quantile": "分位数",
+            "diff": "差分",
+            "pct_change": "百分比变化",
+            "log": "对数变换",
+            "abs": "绝对值",
+            "sqrt": "平方根",
+            "exp": "指数",
         }
 
-        # 可用的技术指标
+        # 可用的技术指标（扩展）
         self.indicators = {
             "SMA": "简单移动平均",
             "EMA": "指数移动平均",
             "RSI": "相对强弱指标",
             "MACD": "MACD",
+            "BBANDS": "布林带",
+            "STOCH": "随机指标",
+            "ADX": "平均趋向指数",
+            "CCI": "顺势指标",
+            "ATR": "真实波幅",
+            "VOLATILITY": "波动率",
         }
 
     def generate_binary_combinations(
@@ -107,15 +125,29 @@ class FactorGeneratorService:
         """
         expressions = []
 
+        # 需要窗口参数的函数
+        window_functions = ["mean", "std", "max", "min", "median", "skew", "kurtosis"]
+
+        # 不需要窗口参数的函数
+        no_window_functions = ["rank", "zscore", "diff", "pct_change", "log", "abs", "sqrt", "exp"]
+
+        # 需要分位数参数的函数
+        quantile_functions = ["quantile"]
+
         for factor in base_factors:
             for stat_func in self.statistics.keys():
-                if stat_func in ["mean", "std", "max", "min"]:
+                if stat_func in window_functions:
                     # 这些函数需要窗口参数
                     for window in window_sizes:
                         expr = f"{stat_func}({factor}, {window})"
                         expressions.append(expr)
-                else:
-                    # rank和zscore不需要窗口
+                elif stat_func in quantile_functions:
+                    # 分位数函数需要分位数值参数
+                    for q in [0.25, 0.5, 0.75]:
+                        expr = f"{stat_func}({factor}, {q})"
+                        expressions.append(expr)
+                elif stat_func in no_window_functions:
+                    # 这些函数不需要参数
                     expr = f"{stat_func}({factor})"
                     expressions.append(expr)
 
@@ -270,25 +302,43 @@ class FactorGeneratorService:
         code = expression
 
         # 替换统计函数
+        # rank
         code = code.replace(
             "rank(",
             f".rank(pct=True).rolling(252, min_periods=1)."
         )
+
+        # zscore (需要特殊处理)
         code = code.replace("zscore(", "((")
-        code = code.replace(
-            "mean(",
-            f".rolling(window=252, min_periods=1)."
-        )
-        code = code.replace(
-            "std(",
-            f".rolling(window=252, min_periods=1)."
-        )
+
+        # 均值、标准差等滚动函数
+        for func in ["mean", "std", "max", "min", "median", "skew", "kurtosis"]:
+            code = code.replace(
+                f"{func}(",
+                f".rolling(window=252, min_periods=1).{func}("
+            )
+
+        # 其他统计函数
+        code = code.replace("diff(", ".diff(")
+        code = code.replace("pct_change(", ".pct_change(")
+        code = code.replace("log(", "np.log(")
+        code = code.replace("abs(", "np.abs(")
+        code = code.replace("sqrt(", "np.sqrt(")
+        code = code.replace("exp(", "np.exp(")
+
+        # quantile需要特殊处理
+        code = code.replace("quantile(", ".quantile(")
 
         # 替换技术指标
         code = code.replace("SMA(", "talib.SMA(")
         code = code.replace("EMA(", "talib.EMA(")
         code = code.replace("RSI(", "talib.RSI(")
         code = code.replace("MACD(", "talib.MACD(")
+        code = code.replace("BBANDS(", "talib.BBANDS(")
+        code = code.replace("STOCH(", "talib.STOCH(")
+        code = code.replace("ADX(", "talib.ADX(")
+        code = code.replace("CCI(", "talib.CCI(")
+        code = code.replace("ATR(", "talib.ATR(")
 
         # 包装成完整的代码
         full_code = f"""
@@ -309,7 +359,10 @@ def calculate_factor(df):
 
         # 处理zscore特殊情况
         if isinstance(factor, pd.Series):
-            factor = (factor - factor.mean()) / (factor.std() + 1e-8)
+            # 检查是否是zscore表达式（以"("开头但没有匹配的右括号）
+            if '{expression}'.startswith('zscore('):
+                # 移除最外层的多余括号
+                factor = (factor - factor.mean()) / (factor.std() + 1e-8)
 
         return factor
     except Exception as e:
@@ -399,6 +452,140 @@ def calculate_factor(df):
         structure["depth"] = max_depth
 
         return structure
+
+    def preselect_factors(
+        self,
+        factors: List[Dict],
+        factor_data_map: Dict[str, pd.Series],
+        return_data: pd.Series,
+        ic_threshold: float = 0.03,
+        ir_threshold: float = 0.5,
+        min_valid_ratio: float = 0.7
+    ) -> List[Dict]:
+        """
+        预筛选因子 - 根据IC、IR等指标筛选有潜力的因子
+
+        Args:
+            factors: 因子字典列表
+            factor_data_map: 因子数据字典 {factor_name: factor_series}
+            return_data: 收益率数据
+            ic_threshold: IC阈值（绝对值）
+            ir_threshold: IR阈值
+            min_valid_ratio: 最小有效数据比例
+
+        Returns:
+            筛选后的因子列表
+        """
+        selected_factors = []
+
+        for factor_info in factors:
+            expression = factor_info["expression"]
+            factor_name = f"factor_{len(selected_factors)}"
+
+            if expression in factor_data_map:
+                factor_values = factor_data_map[expression]
+
+                # 对齐数据
+                aligned_data = pd.DataFrame({
+                    "factor": factor_values,
+                    "return": return_data
+                }).dropna()
+
+                # 检查数据比例
+                valid_ratio = len(aligned_data) / len(factor_values)
+                if valid_ratio < min_valid_ratio:
+                    continue
+
+                # 计算IC
+                ic = aligned_data["factor"].corr(aligned_data["return"])
+
+                if pd.isna(ic) or abs(ic) < ic_threshold:
+                    continue
+
+                # 计算IR（IC均值/IC标准差）
+                rolling_ic = aligned_data["factor"].rolling(
+                    window=20, min_periods=10
+                ).corr(aligned_data["return"])
+
+                ic_mean = rolling_ic.mean()
+                ic_std = rolling_ic.std()
+
+                if pd.isna(ic_std) or ic_std == 0:
+                    ir = 0
+                else:
+                    ir = ic_mean / ic_std
+
+                if ir < ir_threshold:
+                    continue
+
+                # 通过筛选
+                factor_info["ic"] = float(ic)
+                factor_info["ir"] = float(ir)
+                factor_info["valid_ratio"] = float(valid_ratio)
+                selected_factors.append(factor_info)
+
+        return selected_factors
+
+    def calculate_factor_metrics(
+        self,
+        factor_values: pd.Series,
+        return_values: pd.Series
+    ) -> Dict:
+        """
+        计算因子的质量指标
+
+        Args:
+            factor_values: 因子值序列
+            return_values: 收益率序列
+
+        Returns:
+            质量指标字典
+        """
+        # 对齐数据
+        aligned_data = pd.DataFrame({
+            "factor": factor_values,
+            "return": return_values
+        }).dropna()
+
+        if len(aligned_data) < 10:
+            return {
+                "valid": False,
+                "message": "数据不足"
+            }
+
+        # 计算IC
+        ic = aligned_data["factor"].corr(aligned_data["return"])
+
+        # 计算IR
+        rolling_ic = aligned_data["factor"].rolling(
+            window=20, min_periods=10
+        ).corr(aligned_data["return"])
+
+        ic_mean = rolling_ic.mean()
+        ic_std = rolling_ic.std()
+        ir = ic_mean / ic_std if ic_std > 0 else 0
+
+        # 计算胜率
+        ic_win_rate = (rolling_ic > 0).sum() / rolling_ic.count() if rolling_ic.count() > 0 else 0
+
+        # 计算因子分布特征
+        factor_stats = {
+            "mean": float(aligned_data["factor"].mean()),
+            "std": float(aligned_data["factor"].std()),
+            "skew": float(aligned_data["factor"].skew()),
+            "kurtosis": float(aligned_data["factor"].kurtosis()),
+        }
+
+        return {
+            "valid": True,
+            "ic": float(ic),
+            "ir": float(ir),
+            "ic_mean": float(ic_mean),
+            "ic_std": float(ic_std),
+            "ic_win_rate": float(ic_win_rate),
+            "n_obs": len(aligned_data),
+            "factor_stats": factor_stats,
+        }
 
 
 # 全局因子生成器服务实例

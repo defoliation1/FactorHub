@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FactorFlow - 股票因子分析系统</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/common.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans SC"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50">
+    <!-- 顶部导航栏 -->
+    <header class="bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="text-3xl">📊</div>
+                    <div>
+                        <h1 class="text-2xl font-bold">FactorFlow</h1>
+                        <p class="text-sm text-primary-100">股票因子分析系统</p>
+                    </div>
+                </div>
+                <nav class="hidden md:flex gap-6">
+                    <a href="index.html" class="text-white hover:text-primary-100 font-medium">首页</a>
+                    <a href="factor-management.html" class="text-white hover:text-primary-100 font-medium">因子管理</a>
+                    <a href="factor-analysis.html" class="text-white hover:text-primary-100 font-medium">因子分析</a>
+                    <a href="factor-mining.html" class="text-white hover:text-primary-100 font-medium">因子挖掘</a>
+                    <a href="portfolio-analysis.html" class="text-white hover:text-primary-100 font-medium">组合分析</a>
+                    <a href="backtesting.html" class="text-white hover:text-primary-100 font-medium">策略回测</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- 因子总数 -->
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">预置因子</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="preset-count">-</p>
+                    </div>
+                    <div class="text-4xl">📋</div>
+                </div>
+            </div>
+
+            <!-- 用户因子 -->
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">用户因子</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="user-count">-</p>
+                    </div>
+                    <div class="text-4xl">✏️</div>
+                </div>
+            </div>
+
+            <!-- 总因子数 -->
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">总因子数</p>
+                        <p class="text-3xl font-bold text-primary-600 mt-2" id="total-count">-</p>
+                    </div>
+                    <div class="text-4xl">📊</div>
+                </div>
+            </div>
+
+            <!-- 缓存命中率 -->
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-slate-600 text-sm">缓存命中率</p>
+                        <p class="text-3xl font-bold text-accent-green mt-2" id="cache-hit-rate">-</p>
+                    </div>
+                    <div class="text-4xl">💾</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 快速导航 -->
+        <div class="mb-8">
+            <h2 class="text-xl font-bold text-slate-800 mb-4">快速开始</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- 因子管理 -->
+                <a href="factor-management.html" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">📋</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">因子管理</h3>
+                            <p class="text-sm text-slate-600">查看、创建和管理因子，支持批量生成和预筛选</p>
+                        </div>
+                    </div>
+                </a>
+
+                <!-- 因子分析 -->
+                <a href="factor-analysis.html" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">📈</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">因子分析</h3>
+                            <p class="text-sm text-slate-600">IC分析、稳定性检验、多周期分析等深度分析</p>
+                        </div>
+                    </div>
+                </a>
+
+                <!-- 因子挖掘 -->
+                <a href="factor-mining.html" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">🧬</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">因子挖掘</h3>
+                            <p class="text-sm text-slate-600">使用遗传算法自动发现优质因子表达式</p>
+                        </div>
+                    </div>
+                </a>
+
+                <!-- 组合分析 -->
+                <a href="portfolio-analysis.html" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">⚖️</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">组合分析</h3>
+                            <p class="text-sm text-slate-600">多因子组合优化、权重分配和绩效分析</p>
+                        </div>
+                    </div>
+                </a>
+
+                <!-- 策略回测 -->
+                <a href="backtesting.html" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">🔄</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">策略回测</h3>
+                            <p class="text-sm text-slate-600">单策略和多策略对比回测，完整的绩效分析</p>
+                        </div>
+                    </div>
+                </a>
+
+                <!-- API文档 -->
+                <a href="http://localhost:8000/docs" target="_blank" class="card hover:shadow-lg transition-shadow cursor-pointer">
+                    <div class="flex items-start gap-4">
+                        <div class="text-3xl">📚</div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800 mb-2">API 文档</h3>
+                            <p class="text-sm text-slate-600">查看完整的 REST API 文档和接口说明</p>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        <!-- 系统状态 -->
+        <div>
+            <h2 class="text-xl font-bold text-slate-800 mb-4">系统状态</h2>
+            <div class="card">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- API状态 -->
+                    <div>
+                        <p class="text-sm text-slate-600 mb-2">API 服务</p>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-accent-green animate-pulse"></span>
+                            <span class="font-medium text-slate-800" id="api-status">检查中...</span>
+                        </div>
+                    </div>
+
+                    <!-- 缓存数量 -->
+                    <div>
+                        <p class="text-sm text-slate-600 mb-2">缓存数量</p>
+                        <p class="font-medium text-slate-800" id="cache-count">-</p>
+                    </div>
+
+                    <!-- 缓存大小 -->
+                    <div>
+                        <p class="text-sm text-slate-600 mb-2">缓存大小</p>
+                        <p class="font-medium text-slate-800" id="cache-size">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-white border-t border-slate-200 mt-12 py-6">
+        <div class="container mx-auto px-6 text-center text-slate-600 text-sm">
+            <p>© 2025 FactorFlow - 股票因子分析系统</p>
+            <p class="mt-2">
+                <a href="http://localhost:8000/docs" target="_blank" class="text-primary-500 hover:text-primary-600">API文档</a>
+                <span class="mx-2">|</span>
+                <a href="https://github.com" target="_blank" class="text-primary-500 hover:text-primary-600">GitHub</a>
+            </p>
+        </div>
+    </footer>
+
+    <!-- 脚本 -->
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script>
+        // 加载统计数据
+        async function loadStats() {
+            console.log('[首页] 开始加载统计数据...');
+
+            try {
+                // 先测试API连接
+                console.log('[首页] 测试API连接...');
+                const testResponse = await fetch(api.baseURL + '/');
+                if (!testResponse.ok) {
+                    throw new Error('API服务响应异常');
+                }
+                console.log('[首页] API连接正常');
+
+                // 获取因子统计
+                console.log('[首页] 获取因子统计...');
+                const factorStats = await api.getFactorStats();
+                if (factorStats.success) {
+                    document.getElementById('preset-count').textContent = factorStats.data.preset_count || 0;
+                    document.getElementById('user-count').textContent = factorStats.data.user_count || 0;
+                    document.getElementById('total-count').textContent = factorStats.data.total_count || 0;
+                    console.log('[首页] 因子统计加载成功:', factorStats.data);
+                }
+
+                // 获取缓存统计
+                console.log('[首页] 获取缓存统计...');
+                const cacheStats = await api.getCacheStats();
+                if (cacheStats.success) {
+                    const data = cacheStats.data;
+                    document.getElementById('cache-hit-rate').textContent = (data.hit_rate * 100).toFixed(1) + '%';
+                    document.getElementById('cache-count').textContent = data.active_count || 0;
+                    document.getElementById('cache-size').textContent = (data.total_size_mb || 0).toFixed(2) + ' MB';
+                    console.log('[首页] 缓存统计加载成功:', data);
+                }
+
+                // 检查API状态
+                document.getElementById('api-status').innerHTML = '<span class="text-accent-green">✓ 运行中</span>';
+                console.log('[首页] 所有统计数据加载完成');
+            } catch (error) {
+                console.error('[首页] 加载统计数据失败:', error);
+                document.getElementById('api-status').innerHTML = '<span class="text-accent-red">✗ 未连接</span>';
+
+                // 显示详细错误信息
+                const errorMsg = `无法连接到后端服务: ${error.message}`;
+                showToast(errorMsg, 'error');
+
+                // 在控制台显示帮助信息
+                console.error('%c[后端连接失败]', 'color: red; font-size: 16px; font-weight: bold');
+                console.error('请检查:');
+                console.error('1. 后端服务是否启动？运行: python start_api.py');
+                console.error('2. 端口8000是否被占用？');
+                console.error('3. 浏览器控制台是否有CORS错误？');
+                console.error('4. 访问 http://localhost:8000/docs 查看API文档');
+            }
+        }
+
+        // 页面加载时执行
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[首页] DOM加载完成');
+            console.log('[首页] API地址:', api.baseURL);
+
+            // 延迟一点执行，确保所有脚本加载完成
+            setTimeout(() => {
+                console.log('[首页] 开始加载数据...');
+                loadStats();
+            }, 100);
+        });
+    </script>
+</body>
+</html>

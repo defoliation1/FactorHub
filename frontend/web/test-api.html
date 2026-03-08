@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>API连接测试</title>
+</head>
+<body>
+    <h1>API连接测试</h1>
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        async function testAPI() {
+            results.innerHTML = '<p>正在测试...</p>';
+
+            // 测试1: 根路径
+            try {
+                results.innerHTML += '<p>测试1: 连接到 http://localhost:8000/</p>';
+                const response = await fetch('http://localhost:8000/');
+                const data = await response.json();
+                results.innerHTML += '<p style="color: green;">✅ 根路径测试成功: ' + JSON.stringify(data) + '</p>';
+            } catch (error) {
+                results.innerHTML += '<p style="color: red;">❌ 根路径测试失败: ' + error.message + '</p>';
+                results.innerHTML += '<p><strong>请检查：</strong></p>';
+                results.innerHTML += '<ul>';
+                results.innerHTML += '<li>后端服务是否在运行？（应该看到 "Uvicorn running on..."）</li>';
+                results.innerHTML += '<li>端口8000是否被占用？</li>';
+                results.innerHTML += '<li>防火墙是否阻止了连接？</li>';
+                results.innerHTML += '</ul>';
+                return;
+            }
+
+            // 测试2: API路径
+            try {
+                results.innerHTML += '<p>测试2: 连接到 http://localhost:8000/api/factors/stats</p>';
+                const response = await fetch('http://localhost:8000/api/factors/stats');
+                const data = await response.json();
+                results.innerHTML += '<p style="color: green;">✅ API测试成功: ' + JSON.stringify(data) + '</p>';
+            } catch (error) {
+                results.innerHTML += '<p style="color: red;">❌ API测试失败: ' + error.message + '</p>';
+            }
+
+            results.innerHTML += '<p><strong>如果所有测试通过，说明后端服务正常！</strong></p>';
+        }
+
+        testAPI();
+    </script>
+</body>
+</html>

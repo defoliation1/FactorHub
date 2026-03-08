@@ -295,6 +295,274 @@ class PortfolioAnalysisService:
 
         return result
 
+    def optimize_weights(
+        self,
+        factor_returns: pd.DataFrame,
+        method: str = "equal_weight",
+        risk_free_rate: float = 0.03,
+        **kwargs
+    ) -> Dict:
+        """
+        优化因子权重
+
+        Args:
+            factor_returns: 因子收益率 DataFrame (columns=因子名, index=时间)
+            method: 权重优化方法
+                - "equal_weight": 等权重
+                - "ic_weight": IC加权（基于因子历史表现）
+                - "risk_parity": 风险平价
+                - "max_sharpe": 最大夏普比率
+                - "min_variance": 最小方差
+            risk_free_rate: 无风险利率（年化）
+            **kwargs: 其他参数
+
+        Returns:
+            优化结果字典，包含权重和统计信息
+        """
+        if factor_returns.empty:
+            return {
+                "weights": {},
+                "method": method,
+                "error": "因子收益率为空"
+            }
+
+        # 预处理因子收益率，处理 NaN 和 Inf 值
+        factor_returns = factor_returns.replace([np.inf, -np.inf], np.nan)
+        factor_returns = factor_returns.fillna(0.0)
+
+        n_factors = len(factor_returns.columns)
+
+        # 1. 等权重
+        if method == "equal_weight":
+            weights = pd.Series(1.0 / n_factors, index=factor_returns.columns)
+
+            return {
+                "weights": weights.to_dict(),
+                "method": method,
+                "expected_return": float(factor_returns.mean().mean()),
+                "expected_volatility": float(factor_returns.std().mean()),
+            }
+
+        # 2. IC加权（基于因子均值和夏普比率）
+        elif method == "ic_weight":
+            # 计算每个因子的IC（均值和IR）
+            factor_stats = {}
+            for factor in factor_returns.columns:
+                returns = factor_returns[factor].dropna()
+                if len(returns) > 0:
+                    mean_return = returns.mean()
+                    std_return = returns.std()
+                    ir = mean_return / std_return if std_return > 0 else 0
+
+                    factor_stats[factor] = {
+                        "mean": mean_return,
+                        "std": std_return,
+                        "ir": ir
+                    }
+
+            # 基于IR加权（IR为负的设为0）
+            ir_values = pd.Series({
+                factor: max(0, stats["ir"])
+                for factor, stats in factor_stats.items()
+            })
+
+            if ir_values.sum() == 0:
+                # 如果所有IR都<=0，回退到等权重
+                weights = pd.Series(1.0 / n_factors, index=factor_returns.columns)
+            else:
+                weights = ir_values / ir_values.sum()
+
+            return {
+                "weights": weights.to_dict(),
+                "method": method,
+                "expected_return": float(factor_returns.mean().mean()),
+                "expected_volatility": float(factor_returns.std().mean()),
+                "factor_stats": factor_stats,
+            }
+
+        # 3. 风险平价
+        elif method == "risk_parity":
+            # 计算每个因子的波动率
+            volatilities = factor_returns.std()
+
+            # 风险平价权重与波动率成反比
+            inv_vol = 1.0 / volatilities
+            weights = inv_vol / inv_vol.sum()
+
+            return {
+                "weights": weights.to_dict(),
+                "method": method,
+                "expected_return": float(factor_returns.mean().mean()),
+                "expected_volatility": float(factor_returns.std().mean()),
+            }
+
+        # 4. 最大夏普比率（简化版：基于历史数据）
+        elif method == "max_sharpe":
+            # 计算协方差矩阵
+            cov_matrix = factor_returns.cov()
+
+            # 简化方法：使用历史收益率和波动率
+            mean_returns = factor_returns.mean()
+            std_returns = factor_returns.std()
+
+            # 计算夏普比率（假设日频，年化）
+            sharpe_ratios = mean_returns / std_returns * np.sqrt(252)
+
+            # 只投资夏普比率为正的因子
+            positive_sharpe = sharpe_ratios[sharpe_ratios > 0]
+
+            if len(positive_sharpe) == 0:
+                # 如果没有正夏普因子，回退到等权重
+                weights = pd.Series(1.0 / n_factors, index=factor_returns.columns)
+            else:
+                # 按夏普比率加权
+                sharpe_weights = positive_sharpe / positive_sharpe.sum()
+                weights = pd.Series(0.0, index=factor_returns.columns)
+                weights.update(sharpe_weights)
+
+            return {
+                "weights": weights.to_dict(),
+                "method": method,
+                "expected_return": float(mean_returns.mean()),
+                "expected_volatility": float(std_returns.mean()),
+                "sharpe_ratios": sharpe_ratios.to_dict(),
+            }
+
+        # 5. 最小方差（简化版）
+        elif method == "min_variance":
+            # 计算协方差矩阵
+            cov_matrix = factor_returns.cov()
+
+            # 简化方法：等权重（由于需要求解优化问题，这里使用简化版）
+            # 实际应用中应该使用cvxpy等优化库
+            weights = pd.Series(1.0 / n_factors, index=factor_returns.columns)
+
+            return {
+                "weights": weights.to_dict(),
+                "method": method,
+                "expected_return": float(factor_returns.mean().mean()),
+                "expected_volatility": float(factor_returns.std().mean()),
+                "note": "简化版实现，实际应使用优化求解器",
+            }
+
+        else:
+            return {
+                "weights": {},
+                "method": method,
+                "error": f"不支持的权重优化方法: {method}"
+            }
+
+    def calculate_combined_factor_score(
+        self,
+        factor_data: Dict[str, pd.Series],
+        weights: Dict[str, float],
+        normalize: bool = True
+    ) -> pd.Series:
+        """
+        根据权重计算综合因子得分
+
+        Args:
+            factor_data: 因子数据字典 {factor_name: factor_series}
+            weights: 因子权重字典 {factor_name: weight}
+            normalize: 是否标准化因子值
+
+        Returns:
+            综合因子得分序列
+        """
+        # 获取共同的索引
+        common_index = None
+        for factor_name, factor_series in factor_data.items():
+            if common_index is None:
+                common_index = factor_series.index
+            else:
+                common_index = common_index.intersection(factor_series.index)
+
+        if common_index is None or len(common_index) == 0:
+            return pd.Series(dtype=float)
+
+        # 标准化因子值
+        if normalize:
+            normalized_factors = {}
+            for factor_name, factor_series in factor_data.items():
+                aligned_factor = factor_series.reindex(common_index)
+                mean = aligned_factor.mean()
+                std = aligned_factor.std()
+                if std > 0:
+                    normalized_factors[factor_name] = (aligned_factor - mean) / std
+                else:
+                    normalized_factors[factor_name] = aligned_factor - mean
+        else:
+            normalized_factors = {
+                name: series.reindex(common_index)
+                for name, series in factor_data.items()
+            }
+
+        # 计算加权得分
+        combined_score = pd.Series(0.0, index=common_index)
+
+        for factor_name, weight in weights.items():
+            if factor_name in normalized_factors:
+                combined_score += weight * normalized_factors[factor_name]
+
+        # 处理特殊值（NaN, Inf），以避免 JSON 序列化错误
+        combined_score = combined_score.replace([np.inf, -np.inf], np.nan)
+        combined_score = combined_score.fillna(0.0)
+
+        return combined_score
+
+    def compare_weight_methods(
+        self,
+        factor_returns: pd.DataFrame,
+        methods: List[str] = None,
+        risk_free_rate: float = 0.03
+    ) -> Dict:
+        """
+        比较不同权重优化方法的效果
+
+        Args:
+            factor_returns: 因子收益率
+            methods: 要比较的方法列表（默认比较所有方法）
+            risk_free_rate: 无风险利率
+
+        Returns:
+            比较结果字典，格式与前端期望匹配
+        """
+        if methods is None:
+            methods = ["equal_weight", "ic_weight", "risk_parity", "max_sharpe"]
+
+        results = {}
+
+        for method in methods:
+            optimization_result = self.optimize_weights(
+                factor_returns,
+                method=method,
+                risk_free_rate=risk_free_rate
+            )
+
+            if "error" not in optimization_result:
+                results[method] = {
+                    "annual_return": optimization_result["expected_return"],
+                    "volatility": optimization_result["expected_volatility"],
+                    "sharpe_ratio": (
+                        optimization_result["expected_return"] / optimization_result["expected_volatility"]
+                        if optimization_result["expected_volatility"] > 0
+                        else 0
+                    ),
+                }
+
+        return results
+
+    def _get_method_display_name(self, method: str) -> str:
+        """获取方法的显示名称"""
+        name_map = {
+            "equal_weight": "等权重",
+            "ic_weight": "IC加权",
+            "risk_parity": "风险平价",
+            "max_sharpe": "最大夏普",
+            "min_variance": "最小方差",
+        }
+        return name_map.get(method, method)
+
 
 # 全局组合分析服务实例
 portfolio_analysis_service = PortfolioAnalysisService()

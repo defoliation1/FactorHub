@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>因子分析 - FactorFlow</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/common.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans SC"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50">
+    <!-- 顶部导航栏 -->
+    <header class="bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="text-3xl">📊</div>
+                    <div>
+                        <h1 class="text-2xl font-bold">FactorFlow</h1>
+                        <p class="text-sm text-primary-100">因子分析</p>
+                    </div>
+                </div>
+                <nav class="hidden md:flex gap-6">
+                    <a href="index.html" class="text-white hover:text-primary-100 font-medium">首页</a>
+                    <a href="factor-management.html" class="text-white hover:text-primary-100 font-medium">因子管理</a>
+                    <a href="factor-analysis.html" class="text-white border-b-2 border-white font-medium">因子分析</a>
+                    <a href="factor-mining.html" class="text-white hover:text-primary-100 font-medium">因子挖掘</a>
+                    <a href="portfolio-analysis.html" class="text-white hover:text-primary-100 font-medium">组合分析</a>
+                    <a href="backtesting.html" class="text-white hover:text-primary-100 font-medium">策略回测</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- 分析配置 -->
+        <div class="card mb-6">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">分析配置</h2>
+
+            <form id="analysis-form" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm text-slate-600 mb-2">选择因子</label>
+                    <select name="factor_name" id="factor-select" class="select" required>
+                        <option value="">请选择</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm text-slate-600 mb-2">股票代码</label>
+                    <input type="text" name="stock_code" id="stock-code" class="input" value="000001" placeholder="例如：000001">
+                </div>
+
+                <div>
+                    <label class="block text-sm text-slate-600 mb-2">开始日期</label>
+                    <input type="date" name="start_date" id="start-date" class="input">
+                </div>
+
+                <div>
+                    <label class="block text-sm text-slate-600 mb-2">结束日期</label>
+                    <input type="date" name="end_date" id="end-date" class="input">
+                </div>
+            </form>
+
+            <div class="flex gap-4 mt-4">
+                <button onclick="runAnalysis()" class="btn btn-primary">
+                    🚀 运行分析
+                </button>
+                <button onclick="exportReport()" class="btn btn-secondary">
+                    📥 导出报告
+                </button>
+            </div>
+        </div>
+
+        <!-- 标签页导航 -->
+        <div class="mb-6">
+            <div class="border-b border-slate-200">
+                <nav class="flex gap-8 overflow-x-auto">
+                    <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn py-4 px-2 border-b-2 border-primary-500 text-primary-600 font-medium whitespace-nowrap">
+                        概览
+                    </button>
+                    <button onclick="switchTab('ic')" id="tab-ic" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap">
+                        IC分析
+                    </button>
+                    <button onclick="switchTab('stability')" id="tab-stability" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap">
+                        稳定性检验
+                    </button>
+                    <button onclick="switchTab('multi-period')" id="tab-multi-period" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap">
+                        多周期分析
+                    </button>
+                    <button onclick="switchTab('enhanced')" id="tab-enhanced" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap">
+                        增强分析
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- 标签页内容 -->
+        <div id="tab-content">
+            <!-- 概览 -->
+            <div id="content-overview" class="tab-content">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+                    <div class="card">
+                        <p class="text-sm text-slate-600">IC均值</p>
+                        <p class="text-3xl font-bold mt-2" id="ic-mean">-</p>
+                    </div>
+                    <div class="card">
+                        <p class="text-sm text-slate-600">IC标准差</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="ic-std">-</p>
+                    </div>
+                    <div class="card">
+                        <p class="text-sm text-slate-600">IR比率</p>
+                        <p class="text-3xl font-bold text-accent-green mt-2" id="ir-ratio">-</p>
+                    </div>
+                    <div class="card">
+                        <p class="text-sm text-slate-600">IC>0比例</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="ic-positive-ratio">-</p>
+                    </div>
+                    <div class="card">
+                        <p class="text-sm text-slate-600">数据有效率</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="valid-ratio">-</p>
+                    </div>
+                    <div class="card">
+                        <p class="text-sm text-slate-600">数据点数</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="data-points">-</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="font-semibold text-slate-800 mb-4">因子分布</h3>
+                    <div class="chart-container">
+                        <canvas id="distribution-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IC分析 -->
+            <div id="content-ic" class="tab-content hidden">
+                <div class="card mb-6">
+                    <h3 class="font-semibold text-slate-800 mb-4">IC序列</h3>
+                    <div class="chart-container">
+                        <canvas id="ic-series-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="font-semibold text-slate-800 mb-4">IC分布直方图</h3>
+                    <div class="chart-container">
+                        <canvas id="ic-histogram-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 稳定性检验 -->
+            <div id="content-stability" class="tab-content hidden">
+                <div class="card mb-6">
+                    <h3 class="font-semibold text-slate-800 mb-4">因子稳定性评估</h3>
+                    <p class="text-sm text-slate-600 mb-4">基于IC统计特性的稳定性评估（简化版）</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr>
+                                    <th>测试类型</th>
+                                    <th>统计量</th>
+                                    <th>结果</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stability-table">
+                                <tr>
+                                    <td colspan="3" class="text-center text-slate-600 py-4">请先运行分析</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 多周期分析 -->
+            <div id="content-multi-period" class="tab-content hidden">
+                <div class="card mb-6">
+                    <h3 class="font-semibold text-slate-800 mb-4">不同周期IC对比</h3>
+                    <div class="chart-container">
+                        <canvas id="multi-period-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 增强分析 -->
+            <div id="content-enhanced" class="tab-content hidden">
+                <div class="card mb-6">
+                    <h3 class="font-semibold text-slate-800 mb-4">因子衰减分析</h3>
+                    <p class="text-sm text-slate-600 mb-4">展示因子在不同持有期的预测能力衰减情况</p>
+                    <div class="chart-container">
+                        <canvas id="decay-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="font-semibold text-slate-800 mb-4">衰减数据</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr>
+                                    <th>持有期</th>
+                                    <th>IC均值</th>
+                                    <th>评价</th>
+                                </tr>
+                            </thead>
+                            <tbody id="decay-table">
+                                <tr>
+                                    <td colspan="3" class="text-center text-slate-600 py-4">请先运行分析</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 脚本 -->
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/chart-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        let currentAnalysisData = null;
+        let distributionChart = null;
+        let icSeriesChart = null;
+        let icHistogramChart = null;
+        let multiPeriodChart = null;
+        let decayChart = null;
+
+        // 初始化日期
+        function initDates() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setFullYear(startDate.getFullYear() - 1);
+
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            document.getElementById('start-date').value = formatDate(startDate);
+            document.getElementById('end-date').value = formatDate(endDate);
+        }
+
+        // 切换标签页
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('border-primary-500', 'text-primary-600');
+                el.classList.add('border-transparent', 'text-slate-600');
+            });
+
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.remove('border-transparent', 'text-slate-600');
+            document.getElementById(`tab-${tabName}`).classList.add('border-primary-500', 'text-primary-600');
+        }
+
+        // 加载因子列表
+        async function loadFactors() {
+            try {
+                const result = await api.getFactors();
+                if (result.success) {
+                    const select = document.getElementById('factor-select');
+                    select.innerHTML = '<option value="">请选择</option>' +
+                        result.data.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('加载因子失败:', error);
+            }
+        }
+
+        // 运行分析
+        async function runAnalysis() {
+            const form = document.getElementById('analysis-form');
+            const formData = collectFormData(form);
+
+            if (!formData.factor_name) {
+                showToast('请选择因子', 'warning');
+                return;
+            }
+
+            if (!formData.stock_code) {
+                showToast('请输入股票代码', 'warning');
+                return;
+            }
+
+            try {
+                showLoading('分析中，请稍候...');
+
+                // 检查是否是临时因子
+                const select = document.getElementById('factor-select');
+                const selectedOption = select.options[select.selectedIndex];
+                const isTempFactor = selectedOption.getAttribute('data-temp') === 'true';
+                let actualFactorName = formData.factor_name;
+
+                // 如果是临时因子，先保存到数据库
+                if (isTempFactor) {
+                    const expression = selectedOption.getAttribute('data-expression');
+                    showToast('正在保存临时因子...', 'info');
+
+                    try {
+                        const saveResult = await api.createFactor({
+                            name: formData.factor_name,
+                            code: expression,
+                            category: 'user_mined',
+                            description: `通过遗传算法挖掘的临时因子`,
+                            formula_type: 'expression'
+                        });
+
+                        if (saveResult.success) {
+                            showToast('临时因子保存成功', 'success');
+                            actualFactorName = formData.factor_name;
+
+                            // 移除临时标记
+                            selectedOption.removeAttribute('data-temp');
+                            selectedOption.textContent = formData.factor_name;
+                        }
+                    } catch (saveError) {
+                        console.error('保存临时因子失败:', saveError);
+                        hideLoading();
+                        showToast('保存临时因子失败: ' + saveError.message, 'error');
+                        return;
+                    }
+                }
+
+                // 调用分析API
+                const requestData = {
+                    factor_name: actualFactorName,
+                    stock_codes: [formData.stock_code],
+                    start_date: formData.start_date,
+                    end_date: formData.end_date
+                };
+
+                const results = await Promise.all([
+                    api.calculateFactor(requestData),
+                    api.calculateIC(requestData)
+                ]);
+
+                currentAnalysisData = {
+                    factor: results[0],
+                    ic: results[1]
+                };
+
+                displayOverview();
+                displayICAnalysis();
+                displayStabilityAnalysis();
+                displayMultiPeriodAnalysis();
+
+                // 获取衰减分析
+                try {
+                    const decayResult = await api.calculateDecay(requestData);
+                    currentAnalysisData.decay = decayResult;
+                    displayEnhancedAnalysis();
+                } catch (decayError) {
+                    console.error('衰减分析失败:', decayError);
+                }
+
+                showToast('分析完成', 'success');
+            } catch (error) {
+                console.error('分析失败:', error);
+                showToast('分析失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 显示概览
+        function displayOverview() {
+            if (!currentAnalysisData || !currentAnalysisData.ic) return;
+
+            const icData = currentAnalysisData.ic.data;
+            const stats = icData.ic_stats || {};
+
+            // 从ic_stats中获取第一个因子的统计数据
+            const factorName = Object.keys(stats)[0];
+            const factorStats = factorName ? stats[factorName] : {};
+
+            // 更新IC均值（带动态颜色：正数红色，负数绿色）
+            const icMeanEl = document.getElementById('ic-mean');
+            const icMeanValue = factorStats['IC均值'] || 0;
+            icMeanEl.textContent = icMeanValue?.toFixed(4) || '-';
+            icMeanEl.className = `text-3xl font-bold mt-2 ${icMeanValue > 0 ? 'text-accent-red' : icMeanValue < 0 ? 'text-accent-green' : 'text-slate-600'}`;
+
+            document.getElementById('ic-std').textContent = factorStats['IC标准差']?.toFixed(4) || '-';
+            document.getElementById('ir-ratio').textContent = factorStats['IR']?.toFixed(4) || '-';
+            document.getElementById('ic-positive-ratio').textContent = formatPercent(factorStats['IC>0占比']);
+            document.getElementById('valid-ratio').textContent = '100%';  // 暂时固定
+            document.getElementById('data-points').textContent = Object.keys(factorStats['IC序列'] || {}).length || '-';
+
+            // 绘制分布图（这里用示例数据）
+            drawDistributionChart();
+        }
+
+        // 绘制分布图
+        function drawDistributionChart() {
+            const ctx = document.getElementById('distribution-chart').getContext('2d');
+
+            if (distributionChart) {
+                distributionChart.destroy();
+            }
+
+            // 生成示例正态分布数据
+            const rawData = Array.from({length: 100}, () => (Math.random() - 0.5) * 4);
+
+            // 简单的分箱处理，创建直方图效果
+            const binCount = 20;
+            const min = Math.min(...rawData);
+            const max = Math.max(...rawData);
+            const binWidth = (max - min) / binCount;
+
+            const bins = Array(binCount).fill(0);
+            const labels = [];
+            rawData.forEach(value => {
+                const binIndex = Math.min(Math.floor((value - min) / binWidth), binCount - 1);
+                bins[binIndex]++;
+            });
+
+            // 创建标签
+            for (let i = 0; i < binCount; i++) {
+                const binStart = (min + i * binWidth).toFixed(2);
+                const binEnd = (min + (i + 1) * binWidth).toFixed(2);
+                labels.push(`${binStart}`);
+            }
+
+            distributionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '频次',
+                        data: bins,
+                        backgroundColor: ChartColors.primaryBg.replace('0.1', '0.6'),
+                        borderColor: ChartColors.primary,
+                        borderWidth: 1
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '因子值分布直方图'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '因子值'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '频次'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                })
+            });
+        }
+
+        // 显示IC分析
+        function displayICAnalysis() {
+            if (!currentAnalysisData || !currentAnalysisData.ic) return;
+
+            const icData = currentAnalysisData.ic.data;
+            const stats = icData.ic_stats || {};
+
+            // 从ic_stats中获取第一个因子的IC序列
+            const factorName = Object.keys(stats)[0];
+            const factorStats = factorName ? stats[factorName] : {};
+            const icSeries = factorStats['IC序列'] || {};
+
+            // 转换为数组
+            const icArray = Object.values(icSeries);
+
+            // 绘制IC序列和直方图
+            drawICSeriesChart(icArray);
+            drawICHistogramChart(icArray);
+        }
+
+        // 绘制IC序列图
+        function drawICSeriesChart(data) {
+            const ctx = document.getElementById('ic-series-chart').getContext('2d');
+
+            if (icSeriesChart) {
+                icSeriesChart.destroy();
+            }
+
+            icSeriesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map((_, i) => i),
+                    datasets: [{
+                        label: 'IC值',
+                        data: data,
+                        borderColor: ChartColors.primary,
+                        backgroundColor: ChartColors.primaryBg,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                })
+            });
+        }
+
+        // 绘制IC直方图
+        function drawICHistogramChart(data) {
+            const ctx = document.getElementById('ic-histogram-chart').getContext('2d');
+
+            if (icHistogramChart) {
+                icHistogramChart.destroy();
+            }
+
+            icHistogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map((_, i) => i),
+                    datasets: [{
+                        label: 'IC分布',
+                        data: data,
+                        backgroundColor: data.map(v => ChartColors.getValueColor(v))  // 正数红色，负数绿色（中国股市习惯）
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                })
+            });
+        }
+
+        // 显示稳定性检验结果
+        function displayStabilityAnalysis() {
+            if (!currentAnalysisData || !currentAnalysisData.ic) return;
+
+            const icData = currentAnalysisData.ic.data;
+            const stats = icData.ic_stats || {};
+            const factorName = Object.keys(stats)[0];
+            const factorStats = factorName ? stats[factorName] : {};
+
+            const tbody = document.getElementById('stability-table');
+            tbody.innerHTML = '';
+
+            // 简单的稳定性测试（基于IC的统计特性）
+            const icMean = factorStats['IC均值'] || 0;
+            const icStd = factorStats['IC标准差'] || 1;
+            const ir = factorStats['IR'] || 0;
+
+            // 计算稳定性指标
+            const stability = ir > 0.5 ? '良好' : ir > 0.3 ? '一般' : '较差';
+            const stabilityClass = ir > 0.5 ? 'text-green-600' : ir > 0.3 ? 'text-yellow-600' : 'text-red-600';
+
+            const tests = [
+                { name: '因子稳定性', statistic: ir.toFixed(4), result: stability, resultClass: stabilityClass },
+                { name: 'IC均值', statistic: icMean.toFixed(4), result: icMean > 0.03 ? '显著' : '不显著', resultClass: icMean > 0.03 ? 'text-green-600' : 'text-red-600', valueClass: icMean > 0 ? 'text-accent-red' : icMean < 0 ? 'text-accent-green' : 'text-slate-600' },
+                { name: 'IC标准差', statistic: icStd.toFixed(4), result: icStd < 0.15 ? '稳定' : '波动大', resultClass: icStd < 0.15 ? 'text-green-600' : 'text-yellow-600' },
+            ];
+
+            tests.forEach(test => {
+                const row = document.createElement('tr');
+                row.className = 'border-b border-slate-200';
+                row.innerHTML = `
+                    <td class="py-3 px-4">${test.name}</td>
+                    <td class="py-3 px-4 font-mono ${test.valueClass || ''}">${test.statistic}</td>
+                    <td class="py-3 px-4 ${test.resultClass}">${test.result}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 显示多周期分析
+        function displayMultiPeriodAnalysis() {
+            if (!currentAnalysisData || !currentAnalysisData.ic) return;
+
+            const icData = currentAnalysisData.ic.data;
+            const stats = icData.ic_stats || {};
+            const factorName = Object.keys(stats)[0];
+            const factorStats = factorName ? stats[factorName] : {};
+            const icArray = Object.values(factorStats['IC序列'] || {});
+
+            // 简单的多周期分析（使用IC的移动平均）
+            const periods = [5, 10, 20, 60];
+            const periodMeans = periods.map(window => {
+                const means = [];
+                for (let i = window; i < icArray.length; i += window) {
+                    const slice = icArray.slice(i - window, i);
+                    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+                    means.push(mean);
+                }
+                return {
+                    period: window,
+                    mean: means.reduce((a, b) => a + b, 0) / means.length
+                };
+            });
+
+            const ctx = document.getElementById('multi-period-chart').getContext('2d');
+
+            if (multiPeriodChart) {
+                multiPeriodChart.destroy();
+            }
+
+            multiPeriodChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: periodMeans.map(p => `${p.period}天`),
+                    datasets: [{
+                        label: '平均IC',
+                        data: periodMeans.map(p => p.mean),
+                        backgroundColor: ChartColors.primaryBg.replace('0.1', '0.6'),
+                        borderColor: ChartColors.primary,
+                        borderWidth: 1
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'IC均值'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '周期'
+                            }
+                        }
+                    }
+                })
+            });
+        }
+
+        // 显示增强分析（因子衰减）
+        async function displayEnhancedAnalysis() {
+            if (!currentAnalysisData || !currentAnalysisData.decay) return;
+
+            const decayData = currentAnalysisData.decay.data;
+            const decayAnalysis = decayData.decay_analysis || [];
+
+            // 更新表格
+            const tbody = document.getElementById('decay-table');
+            tbody.innerHTML = '';
+
+            if (decayAnalysis.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-slate-600 py-4">暂无数据</td></tr>';
+                return;
+            }
+
+            decayAnalysis.forEach(item => {
+                const ic = item.ic_mean || 0;
+                const evaluation = ic > 0.05 ? '优秀' : ic > 0.03 ? '良好' : ic > 0.01 ? '一般' : '较差';
+                const evalClass = ic > 0.05 ? 'text-green-600' : ic > 0.03 ? 'text-blue-600' : ic > 0.01 ? 'text-yellow-600' : 'text-red-600';
+                const icColorClass = ic > 0 ? 'text-accent-red' : ic < 0 ? 'text-accent-green' : 'text-slate-600';
+
+                const row = document.createElement('tr');
+                row.className = 'border-b border-slate-200';
+                row.innerHTML = `
+                    <td class="py-3 px-4">${item.period}</td>
+                    <td class="py-3 px-4 font-mono ${icColorClass}">${ic.toFixed(4)}</td>
+                    <td class="py-3 px-4 ${evalClass}">${evaluation}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // 绘制衰减图表
+            drawDecayChart(decayAnalysis);
+        }
+
+        // 绘制衰减图表
+        function drawDecayChart(data) {
+            const ctx = document.getElementById('decay-chart').getContext('2d');
+
+            if (decayChart) {
+                decayChart.destroy();
+            }
+
+            decayChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.period),
+                    datasets: [{
+                        label: 'IC均值',
+                        data: data.map(d => d.ic_mean),
+                        borderColor: ChartColors.primary,
+                        backgroundColor: ChartColors.primaryBg,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'IC均值'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '持有期'
+                            }
+                        }
+                    }
+                })
+            });
+        }
+
+        // 导出报告
+        async function exportReport() {
+            if (!currentAnalysisData) {
+                showToast('请先运行分析', 'warning');
+                return;
+            }
+
+            try {
+                showLoading('导出中...');
+
+                const form = document.getElementById('analysis-form');
+                const formData = collectFormData(form);
+
+                const result = await api.exportAnalysisReport({
+                    factor_name: formData.factor_name,
+                    stock_code: formData.stock_code,
+                    start_date: formData.start_date,
+                    end_date: formData.end_date
+                });
+
+                if (result.success) {
+                    showToast('报告导出成功', 'success');
+                }
+            } catch (error) {
+                console.error('导出失败:', error);
+                showToast('导出失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 页面加载时执行
+        document.addEventListener('DOMContentLoaded', () => {
+            initDates();
+            loadFactors();
+
+            // 检查是否有从挖掘页面传递来的临时因子
+            checkTempFactor();
+        });
+
+        // 检查临时因子
+        function checkTempFactor() {
+            const tempFactorStr = sessionStorage.getItem('tempFactor');
+            if (tempFactorStr) {
+                try {
+                    const tempFactor = JSON.parse(tempFactorStr);
+
+                    // 显示提示信息
+                    const select = document.getElementById('factor-select');
+                    const option = document.createElement('option');
+                    option.value = tempFactor.name;
+                    option.textContent = `${tempFactor.name} (临时)`;
+                    option.setAttribute('data-expression', tempFactor.expression);
+                    option.setAttribute('data-temp', 'true');
+                    option.selected = true;
+                    select.appendChild(option);
+
+                    // 显示因子信息提示
+                    showToast(`临时因子 "${tempFactor.name}" 已加载，IC: ${tempFactor.ic?.toFixed(4)}`, 'info');
+
+                    // 清除sessionStorage
+                    sessionStorage.removeItem('tempFactor');
+                } catch (error) {
+                    console.error('解析临时因子失败:', error);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

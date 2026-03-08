@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>策略回测 - FactorFlow</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/common.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans SC"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50">
+    <!-- 顶部导航栏 -->
+    <header class="bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="text-3xl">📊</div>
+                    <div>
+                        <h1 class="text-2xl font-bold">FactorFlow</h1>
+                        <p class="text-sm text-primary-100">策略回测</p>
+                    </div>
+                </div>
+                <nav class="hidden md:flex gap-6">
+                    <a href="index.html" class="text-white hover:text-primary-100 font-medium">首页</a>
+                    <a href="factor-management.html" class="text-white hover:text-primary-100 font-medium">因子管理</a>
+                    <a href="factor-analysis.html" class="text-white hover:text-primary-100 font-medium">因子分析</a>
+                    <a href="factor-mining.html" class="text-white hover:text-primary-100 font-medium">因子挖掘</a>
+                    <a href="portfolio-analysis.html" class="text-white hover:text-primary-100 font-medium">组合分析</a>
+                    <a href="backtesting.html" class="text-white border-b-2 border-white font-medium">策略回测</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- 标签页导航 -->
+        <div class="mb-6">
+            <div class="border-b border-slate-200">
+                <nav class="flex gap-8">
+                    <button onclick="switchTab('single')" id="tab-single" class="tab-btn py-4 px-2 border-b-2 border-primary-500 text-primary-600 font-medium">
+                        单策略回测
+                    </button>
+                    <button onclick="switchTab('comparison')" id="tab-comparison" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium">
+                        多策略对比
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- 标签页内容 -->
+        <div id="tab-content">
+            <!-- 单策略回测 -->
+            <div id="content-single" class="tab-content">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- 配置面板 -->
+                    <div class="card">
+                        <h2 class="text-lg font-bold text-slate-800 mb-4">回测配置</h2>
+
+                        <form id="single-backtest-form" onsubmit="runSingleBacktest(event)">
+                            <!-- 数据配置 -->
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">数据模式</label>
+                                <select name="data_mode" class="select" onchange="toggleStockInput()">
+                                    <option value="single">单股票</option>
+                                    <option value="pool">股票池</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-4" id="single-stock-input">
+                                <label class="block text-sm text-slate-600 mb-2">股票代码</label>
+                                <input type="text" name="stock_code" class="input" value="000001" placeholder="例如：000001">
+                            </div>
+
+                            <div class="mb-4 hidden" id="pool-stock-input">
+                                <label class="block text-sm text-slate-600 mb-2">股票代码列表</label>
+                                <textarea name="stock_codes" class="input" rows="3" placeholder="每行一个股票代码">000001
+600000</textarea>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">开始日期</label>
+                                    <input type="date" name="start_date" class="input" id="start-date-input">
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">结束日期</label>
+                                    <input type="date" name="end_date" class="input" id="end-date-input">
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <!-- 因子配置 -->
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">选择因子</label>
+                                <select name="factor_name" class="select" id="factor-select" required>
+                                    <option value="">请选择</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">策略类型</label>
+                                <select name="strategy_type" class="select">
+                                    <option value="single_factor">单因子策略</option>
+                                    <option value="multi_factor">多因子策略</option>
+                                </select>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <!-- 回测参数 -->
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">初始资金</label>
+                                <input type="number" name="initial_capital" class="input" value="1000000" step="10000">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">费率(%)</label>
+                                    <input type="number" name="commission_rate" class="input" value="0.03" step="0.01">
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">滑点(%)</label>
+                                    <input type="number" name="slippage" class="input" value="0" step="0.01">
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">分位数</label>
+                                <input type="range" name="percentile" class="w-full" min="10" max="90" value="50" oninput="this.nextElementSibling.textContent = this.value + '%'">
+                                <span class="text-sm text-slate-600">50%</span>
+                            </div>
+
+                            <div class="mb-6">
+                                <label class="block text-sm text-slate-600 mb-2">交易方向</label>
+                                <select name="direction" class="select">
+                                    <option value="long">做多</option>
+                                    <option value="short">做空</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-full">
+                                🚀 运行回测
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- 结果展示 -->
+                    <div class="lg:col-span-2">
+                        <div class="card">
+                            <h2 class="text-lg font-bold text-slate-800 mb-4">回测结果</h2>
+
+                            <!-- 等待提示 -->
+                            <div id="single-placeholder" class="text-center py-12">
+                                <div class="text-6xl mb-4">📊</div>
+                                <p class="text-slate-600">配置回测参数后点击"运行回测"按钮</p>
+                            </div>
+
+                            <!-- 回测结果内容 -->
+                            <div id="single-result" class="hidden">
+                                <!-- 指标卡片 -->
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                    <div class="bg-primary-50 rounded-lg p-4">
+                                        <p class="text-sm text-slate-600">累计收益率</p>
+                                        <p class="text-2xl font-bold mt-1" id="total-return">-</p>
+                                    </div>
+                                    <div class="bg-primary-50 rounded-lg p-4">
+                                        <p class="text-sm text-slate-600">年化收益率</p>
+                                        <p class="text-2xl font-bold mt-1" id="annual-return">-</p>
+                                    </div>
+                                    <div class="bg-primary-50 rounded-lg p-4">
+                                        <p class="text-sm text-slate-600">夏普比率</p>
+                                        <p class="text-2xl font-bold mt-1" id="sharpe-ratio">-</p>
+                                    </div>
+                                    <div class="bg-primary-50 rounded-lg p-4">
+                                        <p class="text-sm text-slate-600">最大回撤</p>
+                                        <p class="text-2xl font-bold mt-1" id="max-drawdown">-</p>
+                                    </div>
+                                </div>
+
+                                <!-- 净值曲线 -->
+                                <div class="mb-6">
+                                    <h3 class="font-semibold text-slate-800 mb-3">净值曲线</h3>
+                                    <div class="chart-container">
+                                        <canvas id="equity-chart"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- 回撤曲线 -->
+                                <div>
+                                    <h3 class="font-semibold text-slate-800 mb-3">回撤曲线</h3>
+                                    <div class="chart-container">
+                                        <canvas id="drawdown-chart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 多策略对比 -->
+            <div id="content-comparison" class="tab-content hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- 配置面板 -->
+                    <div class="card">
+                        <h2 class="text-lg font-bold text-slate-800 mb-4">策略对比配置</h2>
+
+                        <form id="comparison-form" onsubmit="runComparison(event)">
+                            <!-- 数据配置 -->
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">数据模式</label>
+                                <select name="data_mode" class="select">
+                                    <option value="single">单股票</option>
+                                    <option value="pool">股票池</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm text-slate-600 mb-2">股票代码</label>
+                                <textarea name="stock_codes" class="input" rows="3" placeholder="每行一个股票代码">000001
+600000</textarea>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">开始日期</label>
+                                    <input type="date" name="start_date" class="input" id="comp-start-date">
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-slate-600 mb-2">结束日期</label>
+                                    <input type="date" name="end_date" class="input" id="comp-end-date">
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <!-- 策略列表 -->
+                            <div class="mb-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="block text-sm text-slate-600">策略列表（至少2个）</label>
+                                    <button type="button" onclick="addStrategy()" class="btn btn-secondary text-sm py-1 px-3">
+                                        ➕ 添加
+                                    </button>
+                                </div>
+                                <div id="strategies-container" class="space-y-3">
+                                    <!-- 策略配置项将动态添加 -->
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <button type="submit" class="btn btn-primary w-full">
+                                🚀 运行策略对比
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- 对比结果 -->
+                    <div class="lg:col-span-2">
+                        <div class="card">
+                            <h2 class="text-lg font-bold text-slate-800 mb-4">对比结果</h2>
+
+                            <!-- 等待提示 -->
+                            <div id="comparison-placeholder" class="text-center py-12">
+                                <div class="text-6xl mb-4">📊</div>
+                                <p class="text-slate-600">配置策略后点击"运行策略对比"按钮</p>
+                            </div>
+
+                            <!-- 对比结果内容 -->
+                            <div id="comparison-result" class="hidden">
+                                <!-- 指标对比表 -->
+                                <div class="mb-6">
+                                    <h3 class="font-semibold text-slate-800 mb-3">指标对比</h3>
+                                    <div class="table-container">
+                                        <table class="w-full">
+                                            <thead>
+                                                <tr>
+                                                    <th>策略名称</th>
+                                                    <th>累计收益率</th>
+                                                    <th>年化收益率</th>
+                                                    <th>年化波动率</th>
+                                                    <th>夏普比率</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="comparison-tbody">
+                                                <!-- 动态填充 -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- 收益对比图 -->
+                                <div>
+                                    <h3 class="font-semibold text-slate-800 mb-3">收益对比</h3>
+                                    <div class="chart-container">
+                                        <canvas id="comparison-chart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 脚本 -->
+    <script src="js/api.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/chart-config.js"></script>
+    <script>
+        let equityChart = null;
+        let drawdownChart = null;
+        let comparisonChart = null;
+        let strategyCount = 0;
+
+        // 初始化日期
+        function initDates() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setFullYear(startDate.getFullYear() - 1);
+
+            const formatDate = (d) => d.toISOString().split('T')[0];
+
+            document.getElementById('start-date-input').value = formatDate(startDate);
+            document.getElementById('end-date-input').value = formatDate(endDate);
+            document.getElementById('comp-start-date').value = formatDate(startDate);
+            document.getElementById('comp-end-date').value = formatDate(endDate);
+        }
+
+        // 切换标签页
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('border-primary-500', 'text-primary-600');
+                el.classList.add('border-transparent', 'text-slate-600');
+            });
+
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.remove('border-transparent', 'text-slate-600');
+            document.getElementById(`tab-${tabName}`).classList.add('border-primary-500', 'text-primary-600');
+        }
+
+        // 切换股票输入模式
+        function toggleStockInput() {
+            const mode = document.querySelector('[name="data_mode"]').value;
+            document.getElementById('single-stock-input').classList.toggle('hidden', mode !== 'single');
+            document.getElementById('pool-stock-input').classList.toggle('hidden', mode !== 'pool');
+        }
+
+        // 加载因子列表
+        async function loadFactors() {
+            try {
+                const result = await api.getFactors();
+                if (result.success) {
+                    const select = document.getElementById('factor-select');
+                    select.innerHTML = '<option value="">请选择</option>' +
+                        result.data.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('加载因子失败:', error);
+            }
+        }
+
+        // 运行单策略回测
+        async function runSingleBacktest(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = collectFormData(form);
+
+            // 转换数据格式
+            const requestData = {
+                data_mode: formData.data_mode,
+                stock_codes: formData.data_mode === 'single'
+                    ? [formData.stock_code]
+                    : formData.stock_codes.split('\n').filter(s => s.trim()),
+                factor_name: formData.factor_name,
+                strategy_type: formData.strategy_type,
+                start_date: formData.start_date,
+                end_date: formData.end_date,
+                initial_capital: parseFloat(formData.initial_capital),
+                commission_rate: parseFloat(formData.commission_rate) / 100,
+                slippage: parseFloat(formData.slippage) / 100,
+                percentile: parseInt(formData.percentile),
+                direction: formData.direction
+            };
+
+            try {
+                showLoading('回测中，请稍候...');
+                const result = await api.runSingleBacktest(requestData);
+
+                if (result.success) {
+                    displaySingleBacktestResult(result.data);
+                    showToast('回测完成', 'success');
+                }
+            } catch (error) {
+                console.error('回测失败:', error);
+                showToast('回测失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 显示单策略回测结果
+        function displaySingleBacktestResult(data) {
+            document.getElementById('single-placeholder').classList.add('hidden');
+            document.getElementById('single-result').classList.remove('hidden');
+
+            // 显示指标（带动态颜色：正数红色，负数绿色）
+            const metrics = data.metrics;
+
+            // 辅助函数：更新带颜色的数值
+            const updateValueWithColor = (elementId, value, formatter = v => v) => {
+                const el = document.getElementById(elementId);
+                el.textContent = formatter(value);
+                el.className = `text-2xl font-bold mt-1 ${value > 0 ? 'text-accent-red' : value < 0 ? 'text-accent-green' : 'text-slate-600'}`;
+            };
+
+            updateValueWithColor('total-return', metrics.total_return, formatPercent);
+            updateValueWithColor('annual-return', metrics.annual_return, formatPercent);
+            updateValueWithColor('sharpe-ratio', metrics.sharpe_ratio, v => v?.toFixed(4) || '-');
+            updateValueWithColor('max-drawdown', metrics.max_drawdown, formatPercent);
+
+            // 绘制净值曲线
+            const equityData = data.result.equity_curve || data.result.returns || [];
+            if (equityData.length > 0) {
+                drawEquityChart(equityData);
+                drawDrawdownChart(equityData);
+            }
+        }
+
+        // 绘制净值曲线
+        function drawEquityChart(data) {
+            const ctx = document.getElementById('equity-chart').getContext('2d');
+
+            if (equityChart) {
+                equityChart.destroy();
+            }
+
+            equityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map((_, i) => i),
+                    datasets: [{
+                        label: '净值',
+                        data: data,
+                        borderColor: ChartColors.primary,
+                        backgroundColor: ChartColors.primaryBg,
+                        fill: true
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                })
+            });
+        }
+
+        // 绘制回撤曲线
+        function drawDrawdownChart(data) {
+            const ctx = document.getElementById('drawdown-chart').getContext('2d');
+
+            if (drawdownChart) {
+                drawdownChart.destroy();
+            }
+
+            // 计算回撤
+            let max = -Infinity;
+            const drawdowns = data.map(v => {
+                max = Math.max(max, v);
+                return (v - max) / max;
+            });
+
+            drawdownChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: drawdowns.map((_, i) => i),
+                    datasets: [{
+                        label: '回撤',
+                        data: drawdowns,
+                        borderColor: '#dc2626',
+                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        fill: true
+                    }]
+                },
+                options: getNoLegendChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                })
+            });
+        }
+
+        // 添加策略
+        function addStrategy() {
+            strategyCount++;
+            const container = document.getElementById('strategies-container');
+
+            const strategyDiv = document.createElement('div');
+            strategyDiv.className = 'border rounded-lg p-3 relative';
+            strategyDiv.id = `strategy-${strategyCount}`;
+            strategyDiv.innerHTML = `
+                <button type="button" onclick="removeStrategy(${strategyCount})" class="absolute top-2 right-2 text-slate-400 hover:text-accent-red">✕</button>
+                <div class="mb-2">
+                    <input type="text" name="strategy_name_${strategyCount}" class="input text-sm" placeholder="策略名称" value="策略${strategyCount}">
+                </div>
+                <div class="mb-2">
+                    <select name="strategy_factor_${strategyCount}" class="select text-sm" required>
+                        <option value="">选择因子</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-xs text-slate-600">前N%</label>
+                        <input type="number" name="strategy_top_${strategyCount}" class="input text-sm" value="20" min="5" max="50">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-600">方向</label>
+                        <select name="strategy_direction_${strategyCount}" class="select text-sm">
+                            <option value="long">做多</option>
+                            <option value="short">做空</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(strategyDiv);
+            loadFactorOptions(strategyCount);
+        }
+
+        // 移除策略
+        function removeStrategy(id) {
+            const strategyDiv = document.getElementById(`strategy-${id}`);
+            if (strategyDiv) {
+                strategyDiv.remove();
+            }
+        }
+
+        // 加载因子选项到策略选择器
+        async function loadFactorOptions(strategyId) {
+            try {
+                const result = await api.getFactors();
+                if (result.success) {
+                    const select = document.querySelector(`#strategy-${strategyId} [name="strategy_factor_${strategyId}"]`);
+                    select.innerHTML = '<option value="">选择因子</option>' +
+                        result.data.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('加载因子失败:', error);
+            }
+        }
+
+        // 运行策略对比
+        async function runComparison(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = collectFormData(form);
+
+            // 收集策略配置
+            const strategies = [];
+            const container = document.getElementById('strategies-container');
+            const strategyDivs = container.querySelectorAll('[id^="strategy-"]');
+
+            if (strategyDivs.length < 2) {
+                showToast('请至少添加2个策略', 'warning');
+                return;
+            }
+
+            strategyDivs.forEach(div => {
+                const id = div.id.replace('strategy-', '');
+                const factor = div.querySelector(`[name="strategy_factor_${id}"]`).value;
+                if (!factor) return;
+
+                strategies.push({
+                    name: div.querySelector(`[name="strategy_name_${id}"]`).value,
+                    factor: factor,
+                    top_pct: parseInt(div.querySelector(`[name="strategy_top_${id}"]`).value),
+                    direction: div.querySelector(`[name="strategy_direction_${id}"]`).value
+                });
+            });
+
+            if (strategies.length < 2) {
+                showToast('请至少为2个策略选择因子', 'warning');
+                return;
+            }
+
+            const requestData = {
+                data_mode: formData.data_mode,
+                stock_codes: formData.stock_codes.split('\n').filter(s => s.trim()),
+                strategies: strategies,
+                start_date: formData.start_date,
+                end_date: formData.end_date,
+                initial_capital: 1000000.0,
+                commission_rate: 0.0003,
+                rebalance_freq: 'monthly'
+            };
+
+            console.log('[调试] 发送对比请求:', requestData);
+
+            try {
+                showLoading('对比中，请稍候...');
+                const result = await api.runStrategyComparison(requestData);
+                console.log('[调试] 收到对比结果:', result);
+
+                if (result.success && result.data && result.data.results) {
+                    const strategiesData = result.data.results;
+                    console.log('[调试] 策略数据:', strategiesData);
+
+                    displayComparisonResult(strategiesData);
+                    showToast('对比完成', 'success');
+                } else {
+                    console.error('[错误] 无效的数据结构:', result);
+                    showToast('对比完成但没有有效的策略数据', 'warning');
+                }
+            } catch (error) {
+                console.error('对比失败:', error);
+                showToast('对比失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 显示对比结果
+        function displayComparisonResult(data) {
+            document.getElementById('comparison-placeholder').classList.add('hidden');
+            document.getElementById('comparison-result').classList.remove('hidden');
+
+            // 填充对比表
+            const tbody = document.getElementById('comparison-tbody');
+            tbody.innerHTML = Object.entries(data).map(([name, metrics]) => `
+                <tr>
+                    <td class="font-medium">${name}</td>
+                    <td class="${getValueColor(metrics.total_return)}">${formatPercent(metrics.total_return)}</td>
+                    <td class="${getValueColor(metrics.annual_return)}">${formatPercent(metrics.annual_return)}</td>
+                    <td>${formatPercent(metrics.volatility)}</td>
+                    <td>${metrics.sharpe_ratio?.toFixed(4)}</td>
+                </tr>
+            `).join('');
+
+            // 绘制对比图
+            drawComparisonChart(data);
+        }
+
+        // 绘制对比图
+        function drawComparisonChart(data) {
+            const ctx = document.getElementById('comparison-chart').getContext('2d');
+
+            if (comparisonChart) {
+                comparisonChart.destroy();
+            }
+
+            console.log('[调试] drawComparisonChart data:', data);
+
+            if (!data || Object.keys(data).length === 0) {
+                console.warn('[警告] 没有可绘制的策略数据');
+                return;
+            }
+
+            const colors = ChartColors.getDatasetColors(Object.keys(data).length);
+            const bgColors = ChartColors.getDatasetBgColors(Object.keys(data).length);
+
+            const datasets = Object.entries(data).map(([name, metrics], i) => {
+                console.log('[调试] 处理策略:', name, metrics);
+                return {
+                    label: name,
+                    data: metrics && metrics.returns ? metrics.returns : [],
+                    borderColor: colors[i],
+                    backgroundColor: bgColors[i],
+                    fill: false
+                };
+            }).filter(d => d.data.length > 0);
+
+            if (datasets.length === 0) {
+                console.warn('[警告] 没有有效可绘制的策略数据');
+                return;
+            }
+
+            comparisonChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: datasets[0].data.map((_, i) => i),
+                    datasets: datasets
+                },
+                options: getLineChartOptions({
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                })
+            });
+        }
+
+        // 页面加载时执行
+        document.addEventListener('DOMContentLoaded', () => {
+            initDates();
+            loadFactors();
+            addStrategy(); // 添加默认策略
+            addStrategy(); // 添加第二个策略
+        });
+    </script>
+</body>
+</html>

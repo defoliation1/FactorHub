@@ -427,7 +427,8 @@ class FactorService:
         return stats
 
     def create_factor(
-        self, name: str, code: str, description: str = ""
+        self, name: str, code: str, description: str = "",
+        category: str = "自定义", formula_type: str = "expression"
     ) -> Dict:
         """创建用户自定义因子"""
         db = get_db_session()
@@ -443,7 +444,7 @@ class FactorService:
             code=code,
             description=description,
             source="user",
-            category="自定义",
+            category=category,
             is_active=1,
         )
         result = repo.create(factor)
@@ -452,7 +453,7 @@ class FactorService:
 
     def update_factor(
         self, factor_id: int, name: str = None, code: str = None, description: str = None,
-        create_version: bool = True, change_reason: str = ""
+        category: str = None, create_version: bool = True, change_reason: str = ""
     ) -> Dict:
         """
         更新因子
@@ -500,6 +501,8 @@ class FactorService:
             factor.code = code
         if description is not None:
             factor.description = description
+        if category:
+            factor.category = category
 
         result = repo.update(factor)
         db.close()

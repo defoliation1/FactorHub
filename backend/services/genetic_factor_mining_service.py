@@ -102,7 +102,7 @@ class GeneticFactorMiningService:
         self.stats.register("min", np.min)
         self.stats.register("max", np.max)
 
-    def _generate_random_individual(self) -> list:
+    def _generate_random_individual(self):
         """生成随机个体（因子表达式）"""
         # 使用因子生成器生成混合因子
         factors = factor_generator_service.generate_hybrid_factors(
@@ -112,15 +112,21 @@ class GeneticFactorMiningService:
 
         if factors:
             expr = factors[0]["expression"]
-            return [expr]
+            individual = creator.Individual()
+            individual.extend([expr])
+            return individual
         else:
             # 如果生成失败，返回简单的二元运算
             if len(self.base_factors) >= 2:
                 factor1, factor2 = random.sample(self.base_factors, 2)
                 op = random.choice(["+", "-", "*", "/"])
-                return [f"({factor1} {op} {factor2})"]
+                individual = creator.Individual()
+                individual.extend([f"({factor1} {op} {factor2})"])
+                return individual
             else:
-                return [self.base_factors[0]]
+                individual = creator.Individual()
+                individual.extend([self.base_factors[0]])
+                return individual
 
     def _evaluate_factor(self, individual: list) -> tuple:
         """
@@ -171,42 +177,94 @@ class GeneticFactorMiningService:
             因子值序列
         """
         try:
-            # 简化版：解析表达式并计算
-            # 注意：这是一个简化实现，实际应用中需要更复杂的解析器
+            # 构建安全的执行环境
+            safe_dict = {}
 
-            # 替换基础因子为实际数据
-            result = None
+            # 添加基础因子数据到环境
+            for factor_name in self.base_factors:
+                if factor_name in self.data.columns:
+                    safe_dict[factor_name] = self.data[factor_name]
 
-            # 处理二元运算
-            if "(" in expr and ")" in expr:
-                # 提取最内层的括号内容
-                inner_expr = self._extract_inner_expression(expr)
+            # 如果没有数据，返回None
+            if not safe_dict:
+                return None
 
-                if "+" in inner_expr or "-" in inner_expr or "*" in inner_expr or "/" in inner_expr:
-                    # 二元运算
-                    parts = self._split_binary_operation(inner_expr)
-
-                    if len(parts) == 2:
-                        left = self._get_factor_value(parts[0])
-                        right = self._get_factor_value(parts[1])
-
-                        if left is not None and right is not None:
-                            if "+" in expr:
-                                result = left + right
-                            elif "-" in expr:
-                                result = left - right
-                            elif "*" in expr:
-                                result = left * right
-                            elif "/" in expr:
-                                result = left / (right + 1e-8)
-
-            if result is None:
-                # 尝试直接获取因子值
-                result = self._get_factor_value(expr)
-
-            return result
+            # 使用pandas.eval进行安全计算（比eval更安全）
+            try:
+                result = pd.eval(expr, local_dict=safe_dict)
+                # 确保返回的是Series
+                if isinstance(result, pd.Series):
+                    return result
+                elif isinstance(result, (int, float)):
+                    # 如果是标量值，返回与数据长度相同的Series
+                    return pd.Series([result] * len(self.data), index=self.data.index)
+                else:
+                    return None
+            except Exception:
+                # 如果pandas.eval失败，尝试简单的二元运算
+                return self._compute_binary_operation(expr)
 
         except Exception as e:
+            logger.warning(f"计算因子表达式失败 {expr}: {e}")
+            return None
+
+    def _compute_binary_operation(self, expr: str) -> Optional[pd.Series]:
+        """
+        计算简单的二元运算表达式（备用方法）
+
+        Args:
+            expr: 因子表达式
+
+        Returns:
+            因子值序列
+        """
+        try:
+            # 去除外层括号
+            expr = expr.strip()
+            if expr.startswith("(") and expr.endswith(")"):
+                expr = expr[1:-1].strip()
+
+            # 尝试匹配二元运算模式: factor1 op factor2
+            import re
+            pattern = r'^(\w+)\s*([+\-*/])\s*(\w+)$'
+            match = re.match(pattern, expr)
+
+            if match:
+                left_factor = match.group(1)
+                operator = match.group(2)
+                right_factor = match.group(3)
+
+                left = self._get_factor_value(left_factor)
+                right = self._get_factor_value(right_factor)
+
+                if left is not None and right is not None:
+                    # 对齐索引
+                    aligned_data = pd.DataFrame({
+                        'left': left,
+                        'right': right
+                    }).dropna()
+
+                    if len(aligned_data) == 0:
+                        return None
+
+                    if operator == '+':
+                        result = aligned_data['left'] + aligned_data['right']
+                    elif operator == '-':
+                        result = aligned_data['left'] - aligned_data['right']
+                    elif operator == '*':
+                        result = aligned_data['left'] * aligned_data['right']
+                    elif operator == '/':
+                        result = aligned_data['left'] / (aligned_data['right'] + 1e-8)
+                    else:
+                        return None
+
+                    return result
+
+            # 如果无法解析为二元运算，尝试直接获取因子值
+            return self._get_factor_value(expr)
+
+        except Exception as e:
+            logger.warning(f"计算二元运算失败 {expr}: {e}")
             return None
 
     def _get_factor_value(self, factor_name: str) -> Optional[pd.Series]:
@@ -258,33 +316,35 @@ class GeneticFactorMiningService:
 
         return []
 
-    def _crossover(self, ind1: list, ind2: list) -> tuple:
+    def _crossover(self, ind1, ind2):
         """交叉操作"""
-        # 交换表达式中的某个部分
-        if random.random() < 0.5:
-            # 交换整个表达式
-            return tools.cxTwoPoint(ind1, ind2)
+        # 由于每个Individual只有一个表达式元素，我们简单地交换表达式中的因子
+        expr1 = ind1[0]
+        expr2 = ind2[0]
+
+        # 提取因子并交换
+        factors1 = [f for f in self.base_factors if f in expr1]
+        factors2 = [f for f in self.base_factors if f in expr2]
+
+        if factors1 and factors2 and random.random() < 0.7:
+            # 70%概率交换因子
+            factor1 = random.choice(factors1)
+            factor2 = random.choice(factors2)
+
+            new_expr1 = expr1.replace(factor1, factor2)
+            new_expr2 = expr2.replace(factor2, factor1)
+
+            # 创建新的Individual对象
+            child1 = creator.Individual()
+            child1.extend([new_expr1])
+            child2 = creator.Individual()
+            child2.extend([new_expr2])
+            return (child1, child2)
         else:
-            # 交换表达式中的因子
-            expr1 = ind1[0]
-            expr2 = ind2[0]
+            # 30%概率直接交换整个表达式
+            return (ind2, ind1)
 
-            # 提取因子并交换
-            factors1 = [f for f in self.base_factors if f in expr1]
-            factors2 = [f for f in self.base_factors if f in expr2]
-
-            if factors1 and factors2:
-                factor1 = random.choice(factors1)
-                factor2 = random.choice(factors2)
-
-                new_expr1 = expr1.replace(factor1, factor2)
-                new_expr2 = expr2.replace(factor2, factor1)
-
-                return ([new_expr1], [new_expr2])
-            else:
-                return (ind1, ind2)
-
-    def _mutate(self, individual: list, indpb: float) -> tuple:
+    def _mutate(self, individual, indpb: float) -> tuple:
         """变异操作"""
         expr = individual[0]
 
@@ -317,7 +377,10 @@ class GeneticFactorMiningService:
             # 简化版：不实际添加，只在记录中标记
             pass
 
-        return ([expr],)
+        # 创建新的Individual对象并返回
+        mutated = creator.Individual()
+        mutated.extend([expr])
+        return (mutated,)
 
     def mine_factors(self) -> Dict:
         """
@@ -410,7 +473,10 @@ class GeneticFactorMiningService:
 
         # 创建初始种群
         population = [self._generate_random_individual() for _ in range(self.population_size - 1)]
-        population.insert(0, [initial_expression])
+        # 将初始表达式转换为Individual对象
+        initial_individual = creator.Individual()
+        initial_individual.extend([initial_expression])
+        population.insert(0, initial_individual)
 
         # 创建Hall of Fame
         halloffame = tools.HallOfFame(5)
