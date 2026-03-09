@@ -146,6 +146,9 @@
                             <button onclick="switchTab('detail')" id="tab-detail" class="tab-btn py-4 px-2 border-b-2 border-primary-500 text-primary-600 font-medium whitespace-nowrap cursor-pointer transition-all duration-200">
                                 详情
                             </button>
+                            <button onclick="switchTab('chart')" id="tab-chart" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap cursor-pointer transition-all duration-200">
+                                行情图表
+                            </button>
                             <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap cursor-pointer transition-all duration-200">
                                 概览
                             </button>
@@ -157,9 +160,6 @@
                             </button>
                             <button onclick="switchTab('multi-period')" id="tab-multi-period" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap cursor-pointer transition-all duration-200">
                                 多周期分析
-                            </button>
-                            <button onclick="switchTab('chart')" id="tab-chart" class="tab-btn py-4 px-2 border-b-2 border-transparent text-slate-600 hover:text-primary-600 font-medium whitespace-nowrap cursor-pointer transition-all duration-200">
-                                行情图表
                             </button>
                         </nav>
                     </div>
@@ -331,8 +331,17 @@
                                             <option value="line">折线图</option>
                                             <option value="bar">柱状图</option>
                                             <option value="area">面积图</option>
+                                            <option value="overlay">同图显示</option>
+                                            <option value="normalized">归一显示</option>
                                         </select>
                                     </div>
+                                    <!-- 刷新按钮 -->
+                                    <button onclick="refreshChartData()" class="btn btn-secondary flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        刷新
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1285,10 +1294,32 @@
                 }
 
                 const factorData = factorResult.data[stockCode];
+
+                // 过滤掉无效的因子值（undefined、null、NaN）
+                const filteredDates = [];
+                const filteredValues = [];
+                for (let i = 0; i < factorData.dates.length; i++) {
+                    const value = factorData.factor_values[i];
+                    // 检查值是否有效（不是 null、undefined 或 NaN）
+                    if (value !== null && value !== undefined && !isNaN(value)) {
+                        filteredDates.push(factorData.dates[i]);
+                        filteredValues.push(value);
+                    }
+                }
+
                 const factorValues = {
-                    dates: factorData.dates,
-                    values: factorData.factor_values
+                    dates: filteredDates,
+                    values: filteredValues
                 };
+
+                // 调试：打印数据范围
+                console.log('原始因子数据量:', factorData.dates.length);
+                console.log('过滤后因子数据量:', filteredDates.length);
+                console.log('过滤掉的无效值数量:', factorData.dates.length - filteredDates.length);
+                console.log('股票数据范围:', stockData[0]?.date, '到', stockData[stockData.length - 1]?.date);
+                console.log('因子数据范围:', filteredDates[0], '到', filteredDates[filteredDates.length - 1]);
+                console.log('股票数据量:', stockData.length);
+                console.log('因子数据量:', filteredDates.length);
 
                 // 合并数据
                 chartData = {
@@ -1352,6 +1383,14 @@
             const stockDates = new Set(stock.map(s => s.date));
             const alignedDates = factor.dates.filter(d => stockDates.has(d));
 
+            console.log('对齐后:', {
+                '股票日期数': stockDates.size,
+                '因子日期数': factor.dates.length,
+                '对齐后日期数': alignedDates.length,
+                '对齐后第一个日期': alignedDates[0],
+                '对齐后最后一个日期': alignedDates[alignedDates.length - 1]
+            });
+
             // 根据对齐后的日期过滤股票数据
             const alignedStock = alignedDates.map(date => stock.find(s => s.date === date)).filter(Boolean);
 
@@ -1375,97 +1414,40 @@
 
             // 准备 K线数据
             const klineData = displayStock.map(d => [d.open, d.close, d.low, d.high]);
+            const closeData = displayStock.map(d => d.close);
 
-            // 根据图表类型设置因子系列配置
-            let factorSeriesConfig = {};
-
-            switch (currentFactorChartType) {
-                case 'bar':
-                    factorSeriesConfig = {
-                        type: 'bar',
-                        name: '因子值',
-                        data: displayFactorValues,
-                        itemStyle: {
-                            color: '#3b82f6'
-                        }
-                    };
-                    break;
-                case 'area':
-                    factorSeriesConfig = {
-                        type: 'line',
-                        name: '因子值',
-                        data: displayFactorValues,
-                        smooth: true,
-                        showSymbol: false,
-                        lineStyle: {
-                            color: '#ef4444',
-                            width: 2
-                        },
-                        areaStyle: {
-                            color: {
-                                type: 'linear',
-                                x: 0,
-                                y: 0,
-                                x2: 0,
-                                y2: 1,
-                                colorStops: [{
-                                    offset: 0, color: 'rgba(239, 68, 68, 0.3)'
-                                }, {
-                                    offset: 1, color: 'rgba(239, 68, 68, 0.05)'
-                                }]
-                            }
-                        }
-                    };
-                    break;
-                case 'line':
-                default:
-                    factorSeriesConfig = {
-                        type: 'line',
-                        name: '因子值',
-                        data: displayFactorValues,
-                        smooth: true,
-                        showSymbol: false,
-                        lineStyle: {
-                            color: '#ef4444',
-                            width: 2
-                        }
-                    };
-                    break;
-            }
+            console.log('最终渲染数据:', {
+                '显示日期数': displayDates.length,
+                '显示股票数': displayStock.length,
+                '显示因子数': displayFactorValues.length,
+                '第一个日期': displayDates[0],
+                '最后一个日期': displayDates[displayDates.length - 1],
+                '第一个因子值': displayFactorValues[0],
+                '最后一个因子值': displayFactorValues[displayFactorValues.length - 1]
+            });
 
             combinedChart = echarts.init(chartDom);
 
-            const option = {
-                animation: false,
-                // 两个 grid，上面是K线，下面是因子图
-                grid: [
-                    {
+            // 判断是否为特殊模式
+            const isOverlayMode = currentFactorChartType === 'overlay';
+            const isNormalizedMode = currentFactorChartType === 'normalized';
+
+            // 根据模式构建配置
+            let option;
+
+            if (isOverlayMode) {
+                // 同图显示模式：K线 + 因子折线，双Y轴
+                option = {
+                    animation: false,
+                    grid: {
                         left: '10%',
                         right: '8%',
                         top: '10%',
-                        height: '50%'
+                        bottom: '15%'
                     },
-                    {
-                        left: '10%',
-                        right: '8%',
-                        top: '70%',
-                        height: '20%'
-                    }
-                ],
-                xAxis: [
-                    {
+                    xAxis: {
                         type: 'category',
                         data: displayDates,
-                        gridIndex: 0,
-                        axisLine: { lineStyle: { color: '#94a3b8' } },
-                        axisTick: { show: false },
-                        axisLabel: { show: false },
-                        splitLine: { show: false }
-                    },
-                    {
-                        type: 'category',
-                        data: displayDates,
-                        gridIndex: 1,
                         axisLine: { lineStyle: { color: '#94a3b8' } },
                         axisTick: { show: false },
                         axisLabel: {
@@ -1474,85 +1456,70 @@
                             color: '#64748b'
                         },
                         splitLine: { show: false }
-                    }
-                ],
-                yAxis: [
-                    {
-                        scale: true,
-                        gridIndex: 0,
-                        axisLine: { show: false },
-                        axisTick: { show: false },
-                        splitLine: {
-                            show: true,
-                            lineStyle: { color: 'rgba(0, 0, 0, 0.05)' }
-                        },
-                        axisLabel: {
-                            fontSize: 11,
-                            fontFamily: "'Fira Code', monospace",
-                            color: '#64748b'
-                        }
                     },
-                    {
-                        scale: true,
-                        gridIndex: 1,
-                        axisLine: { show: false },
-                        axisTick: { show: false },
-                        splitLine: {
-                            show: true,
-                            lineStyle: { color: 'rgba(0, 0, 0, 0.05)' }
+                    yAxis: [
+                        {
+                            scale: true,
+                            position: 'left',
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            splitLine: {
+                                show: true,
+                                lineStyle: { color: 'rgba(0, 0, 0, 0.05)' }
+                            },
+                            axisLabel: {
+                                fontSize: 11,
+                                fontFamily: "'Fira Code', monospace",
+                                color: '#64748b'
+                            }
                         },
-                        axisLabel: {
-                            fontSize: 11,
-                            fontFamily: "'Fira Code', monospace",
-                            color: '#64748b'
+                        {
+                            scale: true,
+                            position: 'right',
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            splitLine: { show: false },
+                            axisLabel: {
+                                fontSize: 11,
+                                fontFamily: "'Fira Code', monospace",
+                                color: '#ef4444'
+                            }
                         }
-                    }
-                ],
-                series: [
-                    {
-                        type: 'candlestick',
-                        name: '日K线',
-                        data: klineData,
-                        xAxisIndex: 0,
-                        yAxisIndex: 0,
-                        itemStyle: {
-                            color: '#ef4444',
-                            color0: '#22c55e',
-                            borderColor: '#ef4444',
-                            borderColor0: '#22c55e'
-                        }
-                    },
-                    {
-                        ...factorSeriesConfig,
-                        name: '因子值',
-                        xAxisIndex: 1,
-                        yAxisIndex: 1
-                    }
-                ],
-                tooltip: {
-                    trigger: 'axis',
-                    axisPointer: {
-                        type: 'line',
-                        lineStyle: {
-                            color: '#ef4444',
-                            width: 1,
-                            type: 'dashed'
+                    ],
+                    series: [
+                        {
+                            type: 'candlestick',
+                            name: '日K线',
+                            data: klineData,
+                            itemStyle: {
+                                color: '#ef4444',
+                                color0: '#22c55e',
+                                borderColor: '#ef4444',
+                                borderColor0: '#22c55e'
+                            }
                         },
-                        link: {
-                            xAxisIndex: 'all'
+                        {
+                            type: 'line',
+                            name: '因子值',
+                            data: displayFactorValues,
+                            yAxisIndex: 1,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: {
+                                color: '#ef4444',
+                                width: 2
+                            }
                         }
-                    },
-                    formatter: function (params) {
-                        let result = '<div style="font-family: \'Fira Code\', monospace; font-size: 12px;">';
-
-                        // 使用统一的日期
-                        const dateIndex = params[0].dataIndex;
-                        const currentDate = displayDates[dateIndex];
-
-                        // 找到K线数据
-                        const klineParam = params.find(p => p.seriesName === '日K线');
-                        if (klineParam) {
+                    ],
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: { type: 'cross' },
+                        formatter: function (params) {
+                            let result = '<div style="font-family: \'Fira Code\', monospace; font-size: 12px;">';
+                            const dateIndex = params[0].dataIndex;
+                            const currentDate = displayDates[dateIndex];
                             const data = displayStock[dateIndex];
+
                             if (data) {
                                 const change = ((data.close - data.open) / data.open * 100).toFixed(2);
                                 const changeStr = parseFloat(change) > 0 ? '+' : '';
@@ -1563,48 +1530,336 @@
                                 result += `<div>最低: <span style="color: #334155;">${data.low.toFixed(2)}</span></div>`;
                                 result += `<div style="color: ${parseFloat(change) >= 0 ? '#ef4444' : '#22c55e'}; font-weight: 500;">涨跌: ${changeStr}${change}%</div>`;
                             }
-                        }
 
-                        // 找到因子数据
-                        const factorParam = params.find(p => p.seriesName === '因子值');
-                        if (factorParam && factorParam.value !== undefined) {
-                            result += `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">`;
-                            result += `<span style="color: #ef4444; font-weight: 500;">因子值:</span> <span style="color: #334155;">${factorParam.value.toFixed(4)}</span>`;
-                            result += `</div>`;
-                        }
+                            const factorParam = params.find(p => p.seriesName === '因子值');
+                            if (factorParam && factorParam.value !== undefined) {
+                                result += `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">`;
+                                result += `<span style="color: #ef4444; font-weight: 500;">因子值:</span> <span style="color: #334155;">${factorParam.value.toFixed(4)}</span>`;
+                                result += `</div>`;
+                            }
 
-                        result += '</div>';
-                        return result;
-                    }
-                },
-                axisPointer: {
-                    link: {
-                        xAxisIndex: [0, 1]
-                    }
-                },
-                dataZoom: [
-                    {
-                        type: 'inside',
-                        xAxisIndex: [0, 1],
-                        start: 0,
-                        end: 100
+                            result += '</div>';
+                            return result;
+                        }
                     },
-                    {
-                        show: true,
-                        xAxisIndex: [0, 1],
-                        type: 'slider',
-                        bottom: '2%',
-                        start: 0,
-                        end: 100,
-                        height: 20,
-                        borderColor: 'transparent',
-                        fillerColor: 'rgba(239, 68, 68, 0.2)',
-                        handleStyle: {
-                            color: '#ef4444'
+                    dataZoom: [
+                        { type: 'inside', start: 0, end: 100 },
+                        {
+                            show: true,
+                            type: 'slider',
+                            bottom: '2%',
+                            start: 0,
+                            end: 100,
+                            height: 20,
+                            borderColor: 'transparent',
+                            fillerColor: 'rgba(239, 68, 68, 0.2)',
+                            handleStyle: { color: '#ef4444' }
                         }
-                    }
-                ]
-            };
+                    ]
+                };
+
+            } else if (isNormalizedMode) {
+                // 归一显示模式：收盘价和因子值都归一化后显示
+                const firstClose = closeData[0];
+                const firstFactor = displayFactorValues[0];
+
+                const normalizedClose = closeData.map(v => (v / firstClose) * 100);
+                const normalizedFactor = displayFactorValues.map(v => (v / firstFactor) * 100);
+
+                option = {
+                    animation: false,
+                    grid: {
+                        left: '10%',
+                        right: '8%',
+                        top: '10%',
+                        bottom: '15%'
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: displayDates,
+                        axisLine: { lineStyle: { color: '#94a3b8' } },
+                        axisTick: { show: false },
+                        axisLabel: {
+                            fontSize: 11,
+                            fontFamily: "'Fira Sans', sans-serif",
+                            color: '#64748b'
+                        },
+                        splitLine: { show: false }
+                    },
+                    yAxis: {
+                        scale: true,
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        splitLine: {
+                            show: true,
+                            lineStyle: { color: 'rgba(0, 0, 0, 0.05)' }
+                        },
+                        axisLabel: {
+                            formatter: '{value}%',
+                            fontSize: 11,
+                            fontFamily: "'Fira Code', monospace",
+                            color: '#64748b'
+                        }
+                    },
+                    series: [
+                        {
+                            type: 'line',
+                            name: '收盘价（归一）',
+                            data: normalizedClose,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: {
+                                color: '#3b82f6',
+                                width: 2
+                            }
+                        },
+                        {
+                            type: 'line',
+                            name: '因子值（归一）',
+                            data: normalizedFactor,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: {
+                                color: '#ef4444',
+                                width: 2
+                            }
+                        }
+                    ],
+                    legend: {
+                        data: ['收盘价（归一）', '因子值（归一）'],
+                        top: 5,
+                        textStyle: {
+                            fontSize: 12,
+                            fontFamily: "'Fira Sans', sans-serif"
+                        }
+                    },
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: { type: 'cross' },
+                        formatter: function (params) {
+                            let result = '<div style="font-family: \'Fira Code\', monospace; font-size: 12px;">';
+                            const dateIndex = params[0].dataIndex;
+                            const currentDate = displayDates[dateIndex];
+
+                            result += `<div style="margin-bottom: 6px; color: #64748b; font-weight: 500;">${currentDate}</div>`;
+
+                            params.forEach(param => {
+                                if (param.seriesName === '收盘价（归一）') {
+                                    const originalValue = displayStock[dateIndex].close;
+                                    result += `<div><span style="color: #3b82f6;">收盘价:</span> ${originalValue.toFixed(2)} <span style="color: #94a3b8;">(${param.value.toFixed(2)}%)</span></div>`;
+                                } else if (param.seriesName === '因子值（归一）') {
+                                    const originalValue = displayFactorValues[dateIndex];
+                                    result += `<div><span style="color: #ef4444;">因子值:</span> ${originalValue.toFixed(4)} <span style="color: #94a3b8;">(${param.value.toFixed(2)}%)</span></div>`;
+                                }
+                            });
+
+                            result += '</div>';
+                            return result;
+                        }
+                    },
+                    dataZoom: [
+                        { type: 'inside', start: 0, end: 100 },
+                        {
+                            show: true,
+                            type: 'slider',
+                            bottom: '2%',
+                            start: 0,
+                            end: 100,
+                            height: 20,
+                            borderColor: 'transparent',
+                            fillerColor: 'rgba(239, 68, 68, 0.2)',
+                            handleStyle: { color: '#ef4444' }
+                        }
+                    ]
+                };
+
+            } else {
+                // 标准模式：上下两个图表
+                // 根据图表类型设置因子系列配置
+                let factorSeriesConfig = {};
+
+                switch (currentFactorChartType) {
+                    case 'bar':
+                        factorSeriesConfig = {
+                            type: 'bar',
+                            name: '因子值',
+                            data: displayFactorValues,
+                            itemStyle: { color: '#3b82f6' }
+                        };
+                        break;
+                    case 'area':
+                        factorSeriesConfig = {
+                            type: 'line',
+                            name: '因子值',
+                            data: displayFactorValues,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: { color: '#ef4444', width: 2 },
+                            areaStyle: {
+                                color: {
+                                    type: 'linear',
+                                    x: 0, y: 0, x2: 0, y2: 1,
+                                    colorStops: [
+                                        { offset: 0, color: 'rgba(239, 68, 68, 0.3)' },
+                                        { offset: 1, color: 'rgba(239, 68, 68, 0.05)' }
+                                    ]
+                                }
+                            }
+                        };
+                        break;
+                    case 'line':
+                    default:
+                        factorSeriesConfig = {
+                            type: 'line',
+                            name: '因子值',
+                            data: displayFactorValues,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: { color: '#ef4444', width: 2 }
+                        };
+                        break;
+                }
+
+                option = {
+                    animation: false,
+                    grid: [
+                        { left: '10%', right: '8%', top: '10%', height: '50%' },
+                        { left: '10%', right: '8%', top: '70%', height: '20%' }
+                    ],
+                    xAxis: [
+                        {
+                            type: 'category',
+                            data: displayDates,
+                            gridIndex: 0,
+                            axisLine: { lineStyle: { color: '#94a3b8' } },
+                            axisTick: { show: false },
+                            axisLabel: { show: false },
+                            splitLine: { show: false }
+                        },
+                        {
+                            type: 'category',
+                            data: displayDates,
+                            gridIndex: 1,
+                            axisLine: { lineStyle: { color: '#94a3b8' } },
+                            axisTick: { show: false },
+                            axisLabel: {
+                                fontSize: 11,
+                                fontFamily: "'Fira Sans', sans-serif",
+                                color: '#64748b'
+                            },
+                            splitLine: { show: false }
+                        }
+                    ],
+                    yAxis: [
+                        {
+                            scale: true,
+                            gridIndex: 0,
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            splitLine: { show: true, lineStyle: { color: 'rgba(0, 0, 0, 0.05)' } },
+                            axisLabel: {
+                                fontSize: 11,
+                                fontFamily: "'Fira Code', monospace",
+                                color: '#64748b'
+                            }
+                        },
+                        {
+                            scale: true,
+                            gridIndex: 1,
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            splitLine: { show: true, lineStyle: { color: 'rgba(0, 0, 0, 0.05)' } },
+                            axisLabel: {
+                                fontSize: 11,
+                                fontFamily: "'Fira Code', monospace",
+                                color: '#64748b'
+                            }
+                        }
+                    ],
+                    series: [
+                        {
+                            type: 'candlestick',
+                            name: '日K线',
+                            data: klineData,
+                            xAxisIndex: 0,
+                            yAxisIndex: 0,
+                            itemStyle: {
+                                color: '#ef4444',
+                                color0: '#22c55e',
+                                borderColor: '#ef4444',
+                                borderColor0: '#22c55e'
+                            }
+                        },
+                        {
+                            ...factorSeriesConfig,
+                            name: '因子值',
+                            xAxisIndex: 1,
+                            yAxisIndex: 1
+                        }
+                    ],
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: {
+                            type: 'line',
+                            lineStyle: { color: '#ef4444', width: 1, type: 'dashed' },
+                            link: { xAxisIndex: 'all' }
+                        },
+                        formatter: function (params) {
+                            let result = '<div style="font-family: \'Fira Code\', monospace; font-size: 12px;">';
+                            const dateIndex = params[0].dataIndex;
+                            const currentDate = displayDates[dateIndex];
+
+                            const klineParam = params.find(p => p.seriesName === '日K线');
+                            if (klineParam) {
+                                const data = displayStock[dateIndex];
+                                if (data) {
+                                    const change = ((data.close - data.open) / data.open * 100).toFixed(2);
+                                    const changeStr = parseFloat(change) > 0 ? '+' : '';
+                                    result += `<div style="margin-bottom: 6px; color: #64748b; font-weight: 500;">${currentDate}</div>`;
+                                    result += `<div>开盘: <span style="color: #334155;">${data.open.toFixed(2)}</span></div>`;
+                                    result += `<div>收盘: <span style="color: #334155;">${data.close.toFixed(2)}</span></div>`;
+                                    result += `<div>最高: <span style="color: #334155;">${data.high.toFixed(2)}</span></div>`;
+                                    result += `<div>最低: <span style="color: #334155;">${data.low.toFixed(2)}</span></div>`;
+                                    result += `<div style="color: ${parseFloat(change) >= 0 ? '#ef4444' : '#22c55e'}; font-weight: 500;">涨跌: ${changeStr}${change}%</div>`;
+                                }
+                            }
+
+                            const factorParam = params.find(p => p.seriesName === '因子值');
+                            if (factorParam && factorParam.value !== undefined) {
+                                result += `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">`;
+                                result += `<span style="color: #ef4444; font-weight: 500;">因子值:</span> <span style="color: #334155;">${factorParam.value.toFixed(4)}</span>`;
+                                result += `</div>`;
+                            }
+
+                            result += '</div>';
+                            return result;
+                        }
+                    },
+                    axisPointer: {
+                        link: { xAxisIndex: [0, 1] }
+                    },
+                    dataZoom: [
+                        {
+                            type: 'inside',
+                            xAxisIndex: [0, 1],
+                            start: 0,
+                            end: 100
+                        },
+                        {
+                            show: true,
+                            xAxisIndex: [0, 1],
+                            type: 'slider',
+                            bottom: '2%',
+                            start: 0,
+                            end: 100,
+                            height: 20,
+                            borderColor: 'transparent',
+                            fillerColor: 'rgba(239, 68, 68, 0.2)',
+                            handleStyle: { color: '#ef4444' }
+                        }
+                    ]
+                };
+            }
 
             combinedChart.setOption(option);
         }
@@ -1613,6 +1868,17 @@
         async function updateChartData() {
             currentChartPeriod = document.getElementById('chart-period').value;
             await loadChartData();
+        }
+
+        // 刷新图表数据
+        async function refreshChartData() {
+            try {
+                await loadChartData();
+                showToast('数据已刷新', 'success');
+            } catch (error) {
+                console.error('刷新数据失败:', error);
+                showToast('刷新失败', 'error');
+            }
         }
 
         // 更新因子图表类型

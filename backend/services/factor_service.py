@@ -24,10 +24,9 @@ class FactorCalculator:
     """因子计算器 - 执行因子计算逻辑"""
 
     def __init__(self):
-        # TALib 函数
+        # TALib 函数（注意：SMA 在 mylanguage_funcs 中定义，支持命名参数）
         self.talib_funcs = {
-            "SMA": talib.SMA,
-            "MA": talib.SMA,  # MA 作为 SMA 的别名
+            # SMA 不在这里定义，改用 mylanguage_funcs 中的版本
             "EMA": talib.EMA,
             "RSI": talib.RSI,
             "MACD": talib.MACD,
@@ -49,6 +48,20 @@ class FactorCalculator:
 
     def _create_mylanguage_funcs(self):
         """创建麦语言兼容函数"""
+
+        # SMA 包装函数，支持命名参数
+        def SMA(series, timeperiod=30, **kwargs):
+            """简单移动平均"""
+            import talib
+            if isinstance(series, pd.Series):
+                result = talib.SMA(series.values, timeperiod=timeperiod, **kwargs)
+                return pd.Series(result, index=series.index)
+            return talib.SMA(series, timeperiod=timeperiod, **kwargs)
+
+        # MA 作为 SMA 的别名
+        def MA(series, timeperiod=30, **kwargs):
+            """移动平均（SMA别名）"""
+            return SMA(series, timeperiod=timeperiod, **kwargs)
 
         def REF(series, n=1):
             """引用n日前的值"""

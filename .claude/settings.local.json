@@ -164,7 +164,14 @@
       "Bash(taskkill //F //PID 10168)",
       "Bash(taskkill //F //PID 12084)",
       "Bash(pip install ta-lib)",
-      "Bash(node --check frontend/web/portfolio-analysis.html)"
+      "Bash(node --check frontend/web/portfolio-analysis.html)",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(taskkill /F /PID 42468)",
+      "Bash(taskkill //F //PID 42468)",
+      "Bash(findstr \":8000.*LISTENING\")",
+      "Bash(findstr \"42468\")",
+      "Bash(uv pip list)",
+      "Bash(uv pip uninstall numba -y)"
     ],
     "deny": [],
     "ask": []

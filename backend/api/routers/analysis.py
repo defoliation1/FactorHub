@@ -85,10 +85,43 @@ async def calculate_factor(request: CalculateRequest):
                 if factor_series is not None:
                     # 将因子值添加到数据中
                     data[request.factor_name] = factor_series
+
+                    # 过滤掉因子值为 NaN 的行，确保 dates 和 factor_values 一一对应
+                    valid_data = data[[request.factor_name]].dropna()
+                    valid_dates = valid_data.index.strftime('%Y-%m-%d').tolist()
+                    valid_factor_values = valid_data[request.factor_name].tolist()
+
+                    # 额外检查：确保所有值都是有效的数字，转换 NaN 为 None
+                    valid_factor_values = [None if (isinstance(v, float) and (v != v)) else v for v in valid_factor_values]
+
+                    # 移除值为 None 的项
+                    filtered_dates = []
+                    filtered_values = []
+                    for d, v in zip(valid_dates, valid_factor_values):
+                        if v is not None:
+                            filtered_dates.append(d)
+                            filtered_values.append(v)
+
+                    valid_dates = filtered_dates
+                    valid_factor_values = filtered_values
+
+                    # 调试日志
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"股票 {stock_code}: 原始数据范围 {data.index[0]} 到 {data.index[-1]}, 共 {len(data)} 行")
+                    logger.info(f"因子 {request.factor_name}: 有效数据范围 {valid_dates[0] if valid_dates else '无'} 到 {valid_dates[-1] if valid_dates else '无'}, 共 {len(valid_dates)} 行")
+                    logger.info(f"因子非NaN值数量: {factor_series.notna().sum()}/{len(factor_series)}")
+                    logger.info(f"返回的因子值数组长度: {len(valid_factor_values)}, 最后5个值: {valid_factor_values[-5:] if len(valid_factor_values) >= 5 else valid_factor_values}")
+
+                    # 验证数据完整性
+                    if len(valid_dates) != len(valid_factor_values):
+                        logger.error(f"数据长度不一致! dates={len(valid_dates)}, values={len(valid_factor_values)}")
+                        raise ValueError(f"数据长度不一致: dates={len(valid_dates)}, values={len(valid_factor_values)}")
+
                     # 转换为字典格式返回
                     result_data[stock_code] = {
-                        "dates": data.index.strftime('%Y-%m-%d').tolist(),
-                        "factor_values": factor_series.dropna().tolist(),
+                        "dates": valid_dates,
+                        "factor_values": valid_factor_values,
                         "statistics": {
                             "mean": float(factor_series.mean()),
                             "std": float(factor_series.std()),
