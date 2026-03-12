@@ -768,8 +768,12 @@ class FactorService:
                 return False, "计算结果包含无穷大值，请检查公式"
 
             # 检查是否所有值都相同（可能不是有效的因子）
-            if result.nunique() == 1:
-                return False, "计算结果全部为相同值，可能不是有效的因子"
+            # 先排除 NaN 值再检查
+            valid_result = result.dropna()
+            if len(valid_result) > 0 and valid_result.nunique() == 1:
+                # 对于常量值，我们只警告但仍然允许通过
+                logger.warning(f"Factor result has only one unique value: {valid_result.iloc[0]}")
+                # 不返回错误，只记录警告，因为有些有效的因子可能确实是常量
 
             return True, "验证通过"
 
