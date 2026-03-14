@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Row, Col, Card, Badge, Button, Space } from 'antd'
 import {
   ArrowUpOutlined,
@@ -32,6 +33,7 @@ interface SystemHealth {
 }
 
 const Home: React.FC = () => {
+  const navigate = useNavigate()
   const [, setLastUpdate] = useState(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
   const [stats, setStats] = useState<Stats>({
     totalCount: 0,
@@ -138,7 +140,7 @@ const Home: React.FC = () => {
   }
 
   const handleModuleClick = (url: string) => {
-    window.location.href = url
+    navigate(url)
   }
 
   return (
@@ -180,10 +182,19 @@ const Home: React.FC = () => {
                     </p>
                     <div className="button-row">
                       <Space size="middle">
-                        <Button type="primary" size="large" icon={<PlusOutlined />}>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<PlusOutlined />}
+                          onClick={() => navigate('/factor-management')}
+                        >
                           新建因子
                         </Button>
-                        <Button size="large" icon={<ExperimentOutlined />}>
+                        <Button
+                          size="large"
+                          icon={<ExperimentOutlined />}
+                          onClick={() => navigate('/factor-mining')}
+                        >
                           启动挖掘
                         </Button>
                       </Space>

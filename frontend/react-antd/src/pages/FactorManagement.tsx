@@ -72,9 +72,7 @@ const FactorManagement: React.FC = () => {
 
   // 弹窗状态
   const [createModalVisible, setCreateModalVisible] = useState(false)
-  const [batchModalVisible, setBatchModalVisible] = useState(false)
   const [form] = Form.useForm()
-  const [batchForm] = Form.useForm()
   const [selectedFormulaType, setSelectedFormulaType] = useState<string>('expression')
 
   // 公式类型帮助内容（用于Tooltip）
@@ -306,43 +304,6 @@ const FactorManagement: React.FC = () => {
     }
   }
 
-  // 批量生成因子
-  const handleBatchGenerate = async (values: any) => {
-    const { base_factors, methods, ic_threshold, ir_threshold, min_valid_ratio } = values
-
-    if (!base_factors || base_factors.length === 0) {
-      message.warning('请至少选择一个基础因子')
-      return
-    }
-
-    if (!methods || methods.length === 0) {
-      message.warning('请至少选择一种生成方法')
-      return
-    }
-
-    try {
-      message.loading({ content: '批量生成中，请稍候...', key: 'batch' })
-      const response = await api.batchGenerateFactors({
-        base_factors,
-        generate_methods: methods,
-        ic_threshold,
-        ir_threshold,
-        min_valid_ratio
-      } as any) as any
-
-      if (response.success) {
-        message.success({ content: `生成完成！生成因子数：${response.data.generated_count || 0}，通过筛选：${response.data.passed_count || 0}`, key: 'batch' })
-        setBatchModalVisible(false)
-        batchForm.resetFields()
-        loadFactors()
-      } else {
-        message.error({ content: response.message || '批量生成失败', key: 'batch' })
-      }
-    } catch (error) {
-      message.error({ content: '批量生成失败', key: 'batch' })
-    }
-  }
-
   // 表格列定义
   const columns: ColumnsType<Factor> = [
     {
@@ -527,24 +488,15 @@ const FactorManagement: React.FC = () => {
                 刷新
               </Button>
               {activeTab === 'user' && (
-                <>
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
-                      setCreateModalVisible(true)
-                    }}
-                  >
-                    新增因子
-                  </Button>
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => setBatchModalVisible(true)}
-                  >
-                    批量生成
-                  </Button>
-                </>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setCreateModalVisible(true)
+                  }}
+                >
+                  新增因子
+                </Button>
               )}
             </Space>
           </div>
@@ -667,91 +619,6 @@ const FactorManagement: React.FC = () => {
                 验证公式
               </Button>
             </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 批量生成因子弹窗 */}
-      <Modal
-        title="批量生成因子"
-        open={batchModalVisible}
-        onCancel={() => {
-          setBatchModalVisible(false)
-          batchForm.resetFields()
-        }}
-        footer={null}
-        width={800}
-        destroyOnHidden
-      >
-        <Form
-          form={batchForm}
-          layout="vertical"
-          onFinish={handleBatchGenerate}
-        >
-          <Form.Item label="选择基础因子" name="base_factors">
-            <Checkbox.Group style={{ width: '100%' }}>
-              <Row gutter={[16, 16]}>
-                {factors.map(factor => (
-                  <Col span={8} key={factor.id}>
-                    <Checkbox value={factor.code}>
-                      <span title={factor.code}>{factor.name}</span>
-                    </Checkbox>
-                  </Col>
-                ))}
-              </Row>
-            </Checkbox.Group>
-          </Form.Item>
-
-          <Form.Item label="生成方法" name="methods">
-            <Checkbox.Group>
-              <Row gutter={16}>
-                <Col span={8}>
-                  <Checkbox value="arithmetic">算术运算</Checkbox>
-                </Col>
-                <Col span={8}>
-                  <Checkbox value="statistics">统计变换</Checkbox>
-                </Col>
-                <Col span={8}>
-                  <Checkbox value="technical">技术指标</Checkbox>
-                </Col>
-              </Row>
-            </Checkbox.Group>
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="IC阈值"
-                name="ic_threshold"
-                initialValue={0.03}
-              >
-                <InputNumber step={0.01} min={0} max={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="IR阈值"
-                name="ir_threshold"
-                initialValue={0.5}
-              >
-                <InputNumber step={0.1} min={0} max={10} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="最小有效率"
-                name="min_valid_ratio"
-                initialValue={0.7}
-              >
-                <InputNumber step={0.1} min={0} max={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block icon={<CheckOutlined />}>
-              开始批量生成
-            </Button>
           </Form.Item>
         </Form>
       </Modal>

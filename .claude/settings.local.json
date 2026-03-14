@@ -215,7 +215,8 @@
       "Bash(uv run python scripts/debug_trades_format.py)",
       "Bash(uv run python scripts/test_actual_signals.py)",
       "Bash(npx tsc --noEmit --skipLibCheck)",
-      "Bash(pnpm type-check)"
+      "Bash(pnpm type-check)",
+      "Bash(uv run python scripts/test_calculation_consistency.py)"
     ],
     "deny": [],
     "ask": []

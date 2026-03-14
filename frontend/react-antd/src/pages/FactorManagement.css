@@ -185,28 +185,6 @@
   background: rgba(59, 130, 246, 0.03) !important;
 }
 
-/* ========== 批量生成因子网格 ========== */
-.factor-management-container .base-factors-grid {
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 16px;
-  background: rgba(248, 250, 252, 0.8);
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  border-radius: 12px;
-}
-
-.factor-management-container .base-factors-grid .ant-checkbox-wrapper {
-  padding: 8px 12px;
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-
-.factor-management-container .base-factors-grid .ant-checkbox-wrapper:hover {
-  background: rgba(59, 130, 246, 0.05);
-  border-color: rgba(59, 130, 246, 0.25);
-}
-
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
   .factor-management-container {
