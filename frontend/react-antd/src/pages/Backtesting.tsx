@@ -485,9 +485,6 @@ const Backtesting: React.FC = () => {
               <p className="page-subtitle">基于因子的量化策略回测与性能分析</p>
             </div>
           </div>
-          <Button onClick={() => navigate('/factor-management')}>
-            返回因子管理
-          </Button>
         </div>
 
         {/* 主卡片 */}

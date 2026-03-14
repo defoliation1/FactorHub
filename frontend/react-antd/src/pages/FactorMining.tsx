@@ -877,9 +877,6 @@ const FactorMining: React.FC = () => {
               </p>
             </div>
           </div>
-          <Button onClick={() => navigate("/factor-management")}>
-            返回因子管理
-          </Button>
         </div>
 
         <Row gutter={[24, 24]}>

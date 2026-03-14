@@ -995,9 +995,6 @@ ${factorNames.map(name => `    ${name}: ${(weights[name] * 100).toFixed(2)}%`).j
               <p className="page-subtitle">多因子组合优化与性能评估</p>
             </div>
           </div>
-          <Button onClick={() => navigate('/factor-management')}>
-            返回因子管理
-          </Button>
         </div>
 
         <Card className="main-card">

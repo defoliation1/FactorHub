@@ -2,7 +2,7 @@
 .factor-management-container {
   min-height: 100vh;
   position: relative;
-  padding: 0;
+  padding: 16px;
   background: transparent;
 }
 
@@ -29,17 +29,41 @@
   z-index: 1;
 }
 
-/* ========== 页面头部 ========== */
-.factor-management-container .page-header {
+/* ========== 主内容区域 ========== */
+.factor-management-container .factor-management-content {
   position: relative;
   z-index: 10;
-  padding: 60px 40px 40px;
+}
+
+/* ========== 页面头部 ========== */
+.factor-management-container .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
+}
+
+.factor-management-container .header-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.factor-management-container .header-icon {
+  font-size: 36px;
+  color: #3b82f6;
 }
 
 .factor-management-container .page-title {
-  font-size: 48px;
-  font-weight: 800;
-  margin: 0 0 16px 0;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
   background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 50%, #6366f1 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -47,7 +71,7 @@
 }
 
 .factor-management-container .page-subtitle {
-  font-size: 18px;
+  font-size: 14px;
   color: #64748b;
   margin: 0;
 }
@@ -56,12 +80,12 @@
 .factor-management-container .tab-card {
   position: relative;
   z-index: 10;
-  margin: 0 40px;
-  background: rgba(255, 255, 255, 0.8) !important;
-  border: 1px solid rgba(59, 130, 246, 0.15) !important;
-  border-radius: 20px !important;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(59, 130, 246, 0.12) !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(20px);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
 }
 
 .factor-management-container .tab-card .ant-tabs-nav {
@@ -86,12 +110,12 @@
 .factor-management-container .toolbar-card {
   position: relative;
   z-index: 10;
-  margin: 0 40px 20px;
-  background: rgba(255, 255, 255, 0.8) !important;
-  border: 1px solid rgba(59, 130, 246, 0.15) !important;
-  border-radius: 20px !important;
+  margin-bottom: 20px;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(59, 130, 246, 0.12) !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(20px);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
 }
 
 .factor-management-container .toolbar {
@@ -117,12 +141,12 @@
 .factor-management-container .table-card {
   position: relative;
   z-index: 10;
-  margin: 0 40px 40px;
-  background: rgba(255, 255, 255, 0.8) !important;
-  border: 1px solid rgba(59, 130, 246, 0.15) !important;
-  border-radius: 20px !important;
+  margin-bottom: 0;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(59, 130, 246, 0.12) !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(20px);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
 }
 
 /* ========== 表格样式 ========== */
@@ -185,21 +209,14 @@
 
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
+  .factor-management-container {
+    padding: 16px;
+  }
+
   .factor-management-container .page-header {
-    padding: 40px 20px 20px;
-  }
-
-  .factor-management-container .page-title {
-    font-size: 32px;
-  }
-
-  .factor-management-container .page-subtitle {
-    font-size: 14px;
-  }
-
-  .factor-management-container .toolbar-card,
-  .factor-management-container .table-card {
-    margin: 0 20px 20px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
   }
 
   .factor-management-container .toolbar {

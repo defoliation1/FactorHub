@@ -28,7 +28,8 @@ import {
   CheckOutlined,
   CopyOutlined,
   QuestionCircleOutlined,
-  WarningOutlined
+  WarningOutlined,
+  DatabaseOutlined
 } from '@ant-design/icons'
 import { api } from '@/services/api'
 import './FactorManagement.css'
@@ -440,14 +441,20 @@ const FactorManagement: React.FC = () => {
       <div className="bg-gradient"></div>
       <div className="bg-grid"></div>
 
-      {/* 页面标题 */}
-      <div className="page-header">
-        <h1 className="page-title">因子管理</h1>
-        <p className="page-subtitle">创建、管理和分析量化因子</p>
-      </div>
+      <div className="factor-management-content">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <div className="header-content">
+            <DatabaseOutlined className="header-icon" />
+            <div>
+              <h1 className="page-title">因子管理</h1>
+              <p className="page-subtitle">创建、管理和分析量化因子</p>
+            </div>
+          </div>
+        </div>
 
-      {/* Tab分类 */}
-      <Card className="tab-card" variant="borderless" style={{ marginBottom: '16px' }}>
+        {/* Tab分类 */}
+        <Card className="tab-card" variant="borderless" style={{ marginBottom: '16px' }}>
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as 'user' | 'preset')}
@@ -465,7 +472,7 @@ const FactorManagement: React.FC = () => {
       </Card>
 
       {/* 工具栏 */}
-      <Card className="toolbar-card" bordered={false}>
+      <Card className="toolbar-card" variant="borderless">
         <div className="toolbar">
           <div className="filters">
             <Space size="middle" wrap>
@@ -545,7 +552,7 @@ const FactorManagement: React.FC = () => {
       </Card>
 
       {/* 因子列表表格 */}
-      <Card className="table-card" bordered={false}>
+      <Card className="table-card" variant="borderless">
         <Table
           columns={columns}
           dataSource={filteredFactors}
@@ -748,6 +755,7 @@ const FactorManagement: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      </div>
     </div>
   )
 }
